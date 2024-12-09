@@ -1,0 +1,14 @@
+// Method and file names should be in camelCase.
+// Class names should be in PascalCase.
+
+
+const user = await UserService.registerUser({ name, email, password });
+way: 1
+return Response.ApiResponse(res, user.status, user.message, user.success ? user.user : undefined);
+
+way: 2
+if (user.success) {
+return Response.ApiResponse(res, user.status, user.message, user.user);
+} else {
+return Response.ApiResponse(res, user.status, user.message);
+}
