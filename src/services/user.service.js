@@ -23,10 +23,8 @@ class AdminService {
             const hashedPassword = await Auth.hashPassword(password);
 
             const newUser = await UserRepository.create({ name, email,  password: hashedPassword, device_id, type })
-
             // const token = cryptoTokenGenerator();
             // await TokenRepository.create({ email, token });
-
             // await MailService.createPasswordEmail(email, token)
 
             return ServiceResponse(true, StatusCodes.CREATED, "User registered successfully", newUser)
