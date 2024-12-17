@@ -31,7 +31,8 @@ const nameField = () => Joi.string().min(3).max(30).required().messages({
     'any.required': requiredMessage("Name"),
 });
 
-const emailField = () => Joi.string().email().required().messages({
+// const emailField = () => Joi.string().email().required().messages({
+const emailField = () => Joi.string().pattern(/^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{1,}$/).required().messages({
     'string.base': 'Email must be a text value',
     'string.empty': 'Email cannot be empty',
     'string.email': 'Please enter a valid email',

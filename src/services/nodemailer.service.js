@@ -3,22 +3,21 @@ const { StatusCodes } = require('http-status-codes');
 
 class MailService {
 
-    static async sendForgotPasswordEmail(email, token) {
+    static async sendForgotPasswordEmail(email, otp) {
         try {
             const transporter = NodemailerConfig.createTransporter();
-            const forgotPasswordLink = `${process.env.FRONT_END_URL}/auth/forgot-password/?email=${email}&token=${token}`;
 
             const mailOptions = {
                 from: process.env.SENDER_EMAIL,
                 to: email,
                 subject: 'Forgot Password Request',
                 html: `
-                        <p>Dear <strong>${email}</strong>,</p>
-                        <p>We received a request for a password reset. Click the link below to reset your password:</p>
-                        <p><a href="${forgotPasswordLink}">Reset Your Password</a></p>
-                        <p><strong>Important:</strong> This link will expire in 30 minutes. If you did not request a password reset, please disregard this email.</p>
-                        <p>Thank you,<br>Village Management System</p>
-                    `,
+                    <p>Dear <strong>${email}</strong>,</p>
+                    <p>You have requested a password reset. Use the OTP below to reset your password:</p>
+                    <h2>${otp}</h2>
+                    <p><strong>Important:</strong> This OTP will expire in 30 minutes. If you did not request this, please ignore this email.</p>
+                    <p>Thank you,<br>Village Management System</p>
+                `,
             };
 
             const sendMail = await transporter.sendMail(mailOptions);

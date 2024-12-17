@@ -15,18 +15,6 @@ class AuthController {
         }
     }
 
-    async setPassword(req, res) {
-        const { email, token } = req.query;
-        const { password, confirm_password } = req.body;
-
-        try {
-            const { status, message } = await AuthService.setPassword(email, token, password, confirm_password);
-            return ApiResponse(res, status, message);
-        } catch (error) {
-            return ApiResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, error.toString())
-        }
-    }
-
     async changePassword(req, res) {
         try {
             const user = req.user;
@@ -48,6 +36,25 @@ class AuthController {
         }
     }
 
+    async varifyOTP(req, res) {
+        const { email, otp } = req.body;
+        try {
+            const { status, message } = await AuthService.varifyOTP(email, otp);
+            return ApiResponse(res, status, message);
+        } catch (error) {
+            return ApiResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, error.toString())
+        }
+    }
+
+    async setPassword(req, res) {
+        const { email, password, confirm_password } = req.body;
+        try {
+            const { status, message } = await AuthService.setPassword(email, password, confirm_password);
+            return ApiResponse(res, status, message);
+        } catch (error) {
+            return ApiResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, error.toString())
+        }
+    }
 }
 
 module.exports = new AuthController();

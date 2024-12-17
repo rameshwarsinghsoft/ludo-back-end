@@ -1,21 +1,10 @@
 const Joi = require('joi');
-const { requiredString, emailField, passwordField, confirmPasswordField } = require('./fieldHelpers');
+const { requiredString, requiredNumber, emailField, passwordField, confirmPasswordField } = require('./fieldHelpers');
 
 const loginSchema = {
     body: Joi.object({
         email: emailField(),
         password: requiredString('Password'),
-    }),
-};
-
-const setPasswordSchema = {
-    query: Joi.object({
-        token: requiredString('Token'),
-        email: emailField(),
-    }),
-    body: Joi.object({
-        password: passwordField('Password'),
-        confirm_password: confirmPasswordField('Confirm password', 'password'),  // Confirm matches 'password'
     }),
 };
 
@@ -33,9 +22,25 @@ const forgetPasswordSchema = {
     }),
 };
 
+const varifyOTPSchema = {
+    body: Joi.object({
+        email: emailField(),
+        otp: requiredNumber('OTP'),
+    }),
+};
+
+const setPasswordSchema = {
+    body: Joi.object({
+        email: emailField(),
+        password: passwordField('Password'),
+        confirm_password: confirmPasswordField('Confirm password', 'password'),  // Confirm matches 'password'
+    }),
+};
+
 module.exports = {
     loginSchema,
-    setPasswordSchema,
     changePasswordSchema,
     forgetPasswordSchema,
+    varifyOTPSchema,
+    setPasswordSchema
 };

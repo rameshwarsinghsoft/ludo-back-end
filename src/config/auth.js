@@ -8,7 +8,6 @@ class Auth {
     }
 
     generateToken(user) {
-        // return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn });
         return jwt.sign( user , this.secret, { expiresIn: this.expiration });
     }
 

@@ -13,7 +13,6 @@ class AuthMiddleware {
             if (!token) {
                 return ApiResponse(res, StatusCodes.FORBIDDEN, 'Authentication token not provided.');
             }
-
             jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
                 if (err) {
                     return ApiResponse(res, StatusCodes.UNAUTHORIZED, 'Unauthorized: Missing, invalid, or expired authentication token.');
