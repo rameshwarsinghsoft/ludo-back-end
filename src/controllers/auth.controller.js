@@ -36,10 +36,10 @@ class AuthController {
         }
     }
 
-    async varifyOTP(req, res) {
+    async verifyOTP(req, res) {
         const { email, otp } = req.body;
         try {
-            const { status, message } = await AuthService.varifyOTP(email, otp);
+            const { status, message } = await AuthService.verifyOTP(email, otp);
             return ApiResponse(res, status, message);
         } catch (error) {
             return ApiResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, error.toString())

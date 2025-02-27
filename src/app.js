@@ -12,7 +12,6 @@ app.use(express.json());
 connectDB();
 apiRouter(app);
 
-// Serve static files from the uploads directory
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 if (require.main === module) {

@@ -4,6 +4,7 @@ const { StatusCodes } = require('http-status-codes');
 const { ApiResponse } = require('../utils/Response');
 
 class AuthMiddleware {
+    
     async verifyToken(req, res, next) {
         try {
             if (!req || !req.headers || !res) {

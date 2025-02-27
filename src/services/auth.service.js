@@ -99,7 +99,7 @@ class AuthService {
         }
     }
 
-    async varifyOTP(email, otp) {
+    async verifyOTP(email, otp) {
         try {
             const user = await UserRepository.findBy({ email });
             if (!user) {
@@ -115,8 +115,6 @@ class AuthService {
             if (!validOTP) {
                 return ServiceResponse(false, StatusCodes.NOT_FOUND, "Invalid OTP.");
             }
-            // delete otp
-            await OTPRepository.deleteOne({ otp });
             return ServiceResponse(true, StatusCodes.OK, "OTP verified successfully");
         } catch (error) {
             console.error("Error updating password:", error);
@@ -131,6 +129,11 @@ class AuthService {
                 return ServiceResponse(false, StatusCodes.NOT_FOUND, "No user found with the provided email ID.");
             }
 
+            const findOTP = await OTPRepository.findBy({ email: email });
+            if (!findOTP) {
+                return ServiceResponse(false, StatusCodes.NOT_FOUND, "OTP has expired. Please request a new OTP.");
+            }
+
             if (password !== confirm_password) {
                 return ServiceResponse(false, StatusCodes.BAD_REQUEST, "Password and confirm password must match.");
             }
@@ -139,6 +142,9 @@ class AuthService {
             user.password = hashedNewPassword;
             await UserRepository.save(user);
 
+            // delete otp
+            await OTPRepository.deleteOne({ email });
+
             return ServiceResponse(true, StatusCodes.OK, "Password created successfully. You can now log in with your new password.");
         } catch (error) {
             console.error("Error updating password:", error);
@@ -146,4 +152,5 @@ class AuthService {
         }
     }
 }
+
 module.exports = new AuthService();

@@ -22,7 +22,7 @@ const forgetPasswordSchema = {
     }),
 };
 
-const varifyOTPSchema = {
+const verifyOTPSchema = {
     body: Joi.object({
         email: emailField(),
         otp: requiredNumber('OTP'),
@@ -41,6 +41,6 @@ module.exports = {
     loginSchema,
     changePasswordSchema,
     forgetPasswordSchema,
-    varifyOTPSchema,
+    verifyOTPSchema,
     setPasswordSchema
 };
