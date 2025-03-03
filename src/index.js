@@ -43,7 +43,6 @@ io.use((socket, next) => {
     }
 });
 
-
 const rooms = {};
 
 io.on('connection', (socket) => {
@@ -85,9 +84,17 @@ io.on('connection', (socket) => {
 
         // Create the room
         rooms[roomCode] = {
-            players: [{ socketId: socket.id, email: socket.user.email, isCreator: true }],
+            players: [{
+                socketId: socket.id,
+                email: socket.user.email,
+                name: socket.user.name,
+                isCreator: true,
+                tokens: [0, 0, 0, 0]  // Each player starts with 4 tokens at position 0
+            }],
             maxPlayers,
             gameState: {},
+            turnIndex: 0,     // Tracks the current player's turn
+            lastDiceRoll: null // Stores the latest dice roll value
         };
 
         // Join the room
@@ -122,44 +129,177 @@ io.on('connection', (socket) => {
         }
 
         // Player joins the room
-        rooms[roomCode].players.push({ socketId: socket.id, email: socket.user.email, isCreator: false });
+        rooms[roomCode].players.push({
+            socketId: socket.id,
+            email: socket.user.email,
+            name: socket.user.name,
+            isCreator: false,
+            tokens: [0, 0, 0, 0],
+        });
         socket.join(roomCode);
 
         const response = {
             success: true,
             message: "Player joined successfully.",
-            players: rooms[roomCode].players
+            data: {
+                players: rooms[roomCode].players
+            }
         };
-
         console.log('Emitting player_joined with:', response);
-
-        // ✅ Broadcast to all players in the room
         io.to(roomCode).emit('player_joined', response);
-
         // ✅ Callback only for the joining player
         callback?.({ success: true, message: "You have successfully joined the room." });
     });
 
-
-    // Rolling Dice
-    socket.on('roll_dice', ({ roomCode }) => {
-        console.log("rooms ", rooms);
-        if (rooms[roomCode]) {
-            const diceRoll = Math.floor(Math.random() * 6) + 1;
-            io.to(roomCode).emit('dice_rolled', { player: socket.id, email: socket.user.email, diceValue: diceRoll });
-            console.log(`Dice rolled: ${diceRoll} in room: ${roomCode}`);
-        } else {
-            console.log("Invalid room:", roomCode);
+    socket.on('game_start', ({ roomCode }, callback) => {
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: "Invalid room code." });
         }
+
+        const room = rooms[roomCode];
+
+        // Check if the room is full
+        if (Number(room.maxPlayers) !== Number(room.players.length)) {
+            return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
+        }
+
+        // Emit the game started event to all players in the room
+        io.to(roomCode).emit('game_started', {
+            success: true,
+            message: "The game has started!",
+            data: {
+                players: room.players.map(player => ({
+                    email: player.email,
+                    name: player.name,
+                    tokens: player.tokens
+                })),
+                turnIndex: room.turnIndex
+            }
+        });
+
+        callback?.({ success: true, message: "Game started successfully!" });
     });
 
-    // Handling player disconnection
+    socket.on('roll_dice', ({ roomCode }, callback) => {
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: "Invalid room code" });
+        }
+
+        const room = rooms[roomCode];
+        const currentPlayer = room.players[room.turnIndex];
+
+        // Check if the room is full
+        if (Number(room.maxPlayers) !== Number(room.players.length)) {
+            return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
+        }
+
+        // Check if it's the current player's turn
+        if (currentPlayer.socketId !== socket.id) {
+            return callback?.({ success: false, message: "Not your turn!" });
+        }
+
+        // Generate dice roll (1-6)
+        const diceRoll = Math.floor(Math.random() * 6) + 1;
+        room.lastDiceRoll = diceRoll;
+
+        console.log(`Player ${currentPlayer.email} rolled ${diceRoll} in room ${roomCode}`);
+
+        // Get all players' tokens
+        const playersData = room.players.map(player => ({
+            email: player.email,
+            name: player.name,
+            tokens: player.tokens
+        }));
+
+        // Notify all players about the dice roll
+        io.to(roomCode).emit('dice_rolled', {
+
+            success: true,
+            message: `Player ${currentPlayer.email} rolled the dice.`,
+            data: {
+                player: socket.id,
+                email: currentPlayer.email,
+                name: currentPlayer.name,
+                diceValue: diceRoll,
+                allPlayers: playersData
+            }
+        });
+        console.log("rooms", rooms);
+        console.log("rooms", rooms[roomCode].players);
+        callback?.({ success: true, message: "Dice rolled successfully!", diceValue: diceRoll });
+    });
+
+    socket.on('move_token', ({ roomCode, tokenIndex }, callback) => {
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: "Invalid room code" });
+        }
+
+        const room = rooms[roomCode];
+        const currentPlayer = room.players[room.turnIndex];
+
+        if (currentPlayer.socketId !== socket.id) {
+            return callback?.({ success: false, message: "It's not your turn!" });
+        }
+
+        if (tokenIndex < 0 || tokenIndex > 3) {
+            return callback?.({ success: false, message: "Invalid token index" });
+        }
+
+        if (room.lastDiceRoll === null) {
+            return callback?.({ success: false, message: "You must roll the dice before moving a token!" });
+        }
+
+        // Move the selected token
+        currentPlayer.tokens[tokenIndex] += room.lastDiceRoll;
+
+        console.log(`Player ${currentPlayer.email} moved token ${tokenIndex} to ${currentPlayer.tokens[tokenIndex]} in room ${roomCode}`);
+        console.log("rooms", rooms[roomCode].players);
+
+        // Get all players' tokens
+        const playersData = room.players.map(player => ({
+            email: player.email,
+            name: player.name,
+            tokens: player.tokens
+        }));
+
+        // Emit the token movement event along with all players' tokens
+        io.to(roomCode).emit('token_moved', {
+            success: true,
+            message: `Player ${currentPlayer.email} moved token ${tokenIndex}.`,
+            data: {
+                player: socket.id,
+                email: currentPlayer.email,
+                name: currentPlayer.name,
+                tokenIndex,
+                newPosition: currentPlayer.tokens[tokenIndex],
+                allPlayers: playersData // Include all players' token data
+            }
+        });
+
+        // Reset lastDiceRoll after token move
+        room.lastDiceRoll = null;
+
+        // Update turn to the next player
+        room.turnIndex = (room.turnIndex + 1) % room.players.length;
+        const nextPlayer = room.players[room.turnIndex];
+
+        // Notify the next player
+        io.to(roomCode).emit('player_turn', {
+            success: true,
+            message: `It's now ${nextPlayer.email}'s turn.`,
+            data: {
+                nextPlayer: room.players[room.turnIndex].email
+            }
+        });
+
+        callback?.({ success: true, message: "Token moved successfully!" });
+    });
+
     socket.on('disconnect', (reason) => {
         console.log(`User disconnected: ${socket.user.email} | Reason: ${reason}`);
 
         for (const [roomCode, room] of Object.entries(rooms)) {
             const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
-            
             if (playerIndex !== -1) {
                 room.players.splice(playerIndex, 1); // Remove player from the room
 
