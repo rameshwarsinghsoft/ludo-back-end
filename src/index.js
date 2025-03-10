@@ -113,11 +113,19 @@ io.on('connection', (socket) => {
         callback?.(response);
     });
 
-    socket.on('join_room', ({ roomCode }, callback) => {
+    socket.on('join_room', ({ roomCode, desiredPlayers }, callback) => {
         console.log(`Attempting to join room: ${roomCode}`);
 
         if (!rooms[roomCode]) {
             return callback?.({ success: false, message: 'Invalid room code' });
+        }
+
+        if (desiredPlayers && rooms[roomCode].maxPlayers !== desiredPlayers) {
+            return callback?.({ success: false, message: `Invalid selection! The game can only be played with ${rooms[roomCode].maxPlayers} players.` });
+        }
+
+        if (rooms[roomCode].players.some(player => player.email === socket.user.email)) {
+            return callback?.({ success: false, message: 'You are already in this room' });
         }
 
         if (rooms[roomCode].players.some(player => player.socketId === socket.id)) {
@@ -127,6 +135,8 @@ io.on('connection', (socket) => {
         if (rooms[roomCode].players.length >= rooms[roomCode].maxPlayers) {
             return callback?.({ success: false, message: 'Room is full' });
         }
+
+        const maxPlayers = rooms[roomCode].maxPlayers;
 
         // Player joins the room
         rooms[roomCode].players.push({
@@ -142,6 +152,51 @@ io.on('connection', (socket) => {
             success: true,
             message: "Player joined successfully.",
             data: {
+                roomCode,
+                maxPlayers,
+                players: rooms[roomCode].players
+            }
+        };
+        console.log('Emitting player_joined with:', response);
+        io.to(roomCode).emit('player_joined', response);
+        // ✅ Callback only for the joining player
+        callback?.({ success: true, message: "You have successfully joined the room." });
+    });
+
+    //if desiredPlayers and maxPlayers are not same
+    socket.on('confirm_join_room', ({ roomCode }, callback) => {
+        console.log(`Attempting to join room: ${roomCode}`);
+
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: 'Invalid room code' });
+        }
+
+        if (rooms[roomCode].players.some(player => player.email === socket.user.email)) {
+            return callback?.({ success: false, message: 'You are already in this room' });
+        }
+
+        if (rooms[roomCode].players.length >= rooms[roomCode].maxPlayers) {
+            return callback?.({ success: false, message: 'Room is full' });
+        }
+
+        const maxPlayers = rooms[roomCode].maxPlayers;
+
+        // Player joins the room
+        rooms[roomCode].players.push({
+            socketId: socket.id,
+            email: socket.user.email,
+            name: socket.user.name,
+            isCreator: false,
+            tokens: [0, 0, 0, 0],
+        });
+        socket.join(roomCode);
+
+        const response = {
+            success: true,
+            message: "Player joined successfully.",
+            data: {
+                roomCode,
+                maxPlayers,
                 players: rooms[roomCode].players
             }
         };
@@ -158,9 +213,19 @@ io.on('connection', (socket) => {
 
         const room = rooms[roomCode];
 
+
         // Check if the room is full
         if (Number(room.maxPlayers) !== Number(room.players.length)) {
             return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
+        }
+
+        const currentPlayer = rooms[roomCode].players.find(player => player.socketId === socket.id);
+        if (!currentPlayer) {
+            return callback?.({ success: false, message: 'Player not found in the room.' });
+        }
+
+        if (!currentPlayer.isCreator) {
+            return callback?.({ success: false, message: 'Only the room creator can start the game.' });
         }
 
         // Emit the game started event to all players in the room

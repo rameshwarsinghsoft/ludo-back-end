@@ -3,7 +3,7 @@ const { ApiResponse } = require('../utils/Response');
 const { StatusCodes } = require('http-status-codes');
 
 class AuthController {
-
+ 
     async login(req, res) {
         try {
             const { email, password } = req.body;
