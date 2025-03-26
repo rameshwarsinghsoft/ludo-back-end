@@ -116,12 +116,28 @@ io.on('connection', (socket) => {
     socket.on('join_room', ({ roomCode, desiredPlayers }, callback) => {
         console.log(`Attempting to join room: ${roomCode}`);
 
+        console.log("rooms : ", rooms)
+
         if (!rooms[roomCode]) {
-            return callback?.({ success: false, message: 'Invalid room code' });
+            return callback?.({ success: false, is_room_code: false, message: 'Invalid room code' });
+        }
+
+        // if (desiredPlayers) {
+        //     return callback?.({ success: false, message: `desired Players is required.` });
+        // }
+
+        // Validate desiredPlayers: It must be a positive integer
+        if (!desiredPlayers || typeof desiredPlayers !== 'number' || desiredPlayers <= 0 || !Number.isInteger(desiredPlayers)) {
+            return callback?.({
+                success: false,
+                message: `Invalid desiredPlayers value. It must be a positive integer.`
+            });
         }
 
         if (desiredPlayers && rooms[roomCode].maxPlayers !== desiredPlayers) {
-            return callback?.({ success: false, message: `Invalid selection! The game can only be played with ${rooms[roomCode].maxPlayers} players.` });
+            // return callback?.({ success: false, is_room_code: true, message: `Invalid selection! The game can only be played with ${rooms[roomCode].maxPlayers} players.` });
+            return callback?.({ success: false, is_room_code: true, message: `This room is for ${rooms[roomCode].maxPlayers} players. Do you want to join?.` });
+
         }
 
         if (rooms[roomCode].players.some(player => player.email === socket.user.email)) {
@@ -204,6 +220,62 @@ io.on('connection', (socket) => {
         io.to(roomCode).emit('player_joined', response);
         // ✅ Callback only for the joining player
         callback?.({ success: true, message: "You have successfully joined the room." });
+    });
+
+    // Remove the player from the room if they are not playing
+    // Delete the room if the creator quits
+    socket.on('quit_room', ({ roomCode }, callback) => {
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: "Invalid room code." });
+        }
+
+        const room = rooms[roomCode];
+        const currentPlayer = room.players.find(player => player.socketId === socket.id);
+
+        if (!currentPlayer) {
+            return callback?.({ success: false, message: 'Player not found in the room.' });
+        }
+
+        const left_player = room.players.find(player => player.email === socket.user.email);
+        if (!currentPlayer.isCreator) {
+            // Remove player from the room
+            room.players = room.players.filter(player => player.email !== socket.user.email);
+
+            io.to(roomCode).emit('player_left_room', {
+                // socket.broadcast.emit(roomCode).emit('player_left_room', {
+                success: true,
+                message: `Player ${currentPlayer.name} has left the room.`,
+
+                //remainig player data
+                // data: {
+                //     players: room.players.map(player => ({
+                //         email: player.email,
+                //         name: player.name,
+                //         tokens: player.tokens,
+                //     })),
+                // },
+
+                // left player data
+                // data: {
+                //     left_player.email
+                // },
+                email: left_player.email
+            });
+
+            callback?.({ success: true, message: "Player left the room." });
+
+        } else {
+            // Room creator quits, delete the room
+            io.to(roomCode).emit('room_deleted', {
+                success: true,
+                message: "The room has been deleted.",
+                is_deleted_by: currentPlayer.email,
+                // data: null
+            });
+
+            delete rooms[roomCode];
+            callback?.({ success: true, message: "Room deleted successfully." });
+        }
     });
 
     socket.on('game_start', ({ roomCode }, callback) => {
