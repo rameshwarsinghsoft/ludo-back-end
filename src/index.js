@@ -224,7 +224,7 @@ io.on('connection', (socket) => {
 
     // Remove the player from the room if they are not playing
     // Delete the room if the creator quits
-    socket.on('quit_room', ({ roomCode }, callback) => {
+    socket.on('quit_room1', ({ roomCode }, callback) => {
         if (!rooms[roomCode]) {
             return callback?.({ success: false, message: "Invalid room code." });
         }
@@ -240,6 +240,11 @@ io.on('connection', (socket) => {
         if (!currentPlayer.isCreator) {
             // Remove player from the room
             room.players = room.players.filter(player => player.email !== socket.user.email);
+
+            // Ensure player leaves the room
+            socket.leave(roomCode);
+
+            console.log("room.players : ", room.players)
 
             io.to(roomCode).emit('player_left_room', {
                 // socket.broadcast.emit(roomCode).emit('player_left_room', {
@@ -272,8 +277,65 @@ io.on('connection', (socket) => {
                 is_deleted_by: currentPlayer.email,
                 // data: null
             });
-
+            console.log("room.players : ", room.players)
             delete rooms[roomCode];
+            callback?.({ success: true, message: "Room deleted successfully." });
+        }
+    });
+
+    socket.on('quit_room', ({ roomCode }, callback) => {
+        if (!rooms[roomCode]) {
+            return callback?.({ success: false, message: "Invalid room code." });
+        }
+
+        const room = rooms[roomCode];
+        const currentPlayer = room.players.find(player => player.socketId === socket.id);
+
+        if (!currentPlayer) {
+            return callback?.({ success: false, message: 'Player not found in the room.' });
+        }
+
+        const leftPlayer = room.players.find(player => player.email === socket.user.email);
+
+        console.log("leftPlayer : ",leftPlayer, typeof leftPlayer)
+        console.log("socket.user.email : ",socket.user.email, typeof socket.user.email)
+
+        if (!currentPlayer.isCreator) {
+            // Remove the player from the room
+            room.players = room.players.filter(player => player.email !== socket.user.email);
+            // socket.leave(roomCode); // Player leaves the room
+
+            console.log("Remaining players in room:", room.players);
+
+            // Notify other players about the departure
+            io.to(roomCode).emit('player_left_room', {
+                success: true,
+                message: `Player ${currentPlayer.name} has left the room.`,
+                email: leftPlayer.email
+            });
+
+            // You should send the message before the socket leaves the room. Otherwise, 
+            // the current socket will be removed from the group before the message is sent.
+            socket.leave(roomCode); // Player leaves the room
+
+            callback?.({ success: true, message: "Player left the room." });
+
+        } else {
+            // Room creator quits → Delete the room
+            io.to(roomCode).emit('room_deleted', {
+                success: true,
+                message: "The room has been deleted.",
+                is_deleted_by: currentPlayer.email
+            });
+
+            console.log(`Room ${roomCode} deleted by creator ${currentPlayer.email}`);
+
+            // Remove all players and delete the room
+            room.players.forEach(player => {
+                io.sockets.sockets.get(player.socketId)?.leave(roomCode);
+            });
+            delete rooms[roomCode];
+
             callback?.({ success: true, message: "Room deleted successfully." });
         }
     });
