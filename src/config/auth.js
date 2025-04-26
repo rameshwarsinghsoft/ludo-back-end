@@ -8,7 +8,7 @@ class Auth {
     }
 
     generateToken(user) {
-        return jwt.sign( user , this.secret, { expiresIn: this.expiration });
+        return jwt.sign(user, this.secret, { expiresIn: this.expiration });
     }
 
     async hashPassword(password) {

@@ -7,8 +7,9 @@ class UserController {
     async register(req, res) {
         try {
             const { name, email, password, device_id, type } = req.body;
-            const user = await UserService.registerUser({ name, email, password, device_id, type });
-            return ApiResponse(res, user.status, user.message, user.success ? user.data : undefined);
+            const { status, message, success, data, token } = await UserService.registerUser({ name, email, password, device_id, type });
+            return ApiResponse(res, status, message, success ? data : undefined, token);
+            // return ApiResponse(res, user.status, user.message, user.success ? user.data : undefined, user.token ? user.token : undefined);
         } catch (error) {
             return ApiResponse(res, StatusCodes.INTERNAL_SERVER_ERROR, error.toString());
         }
@@ -27,7 +28,7 @@ class UserController {
     async updateUser(req, res) {
         try {
             const byEmail = req.params.email;
-            const {  name, email } = req.body;
+            const { name, email } = req.body;
             const user = await UserService.updateUser(byEmail, { name, email });
             return ApiResponse(res, user.status, user.message, user.success ? user.data : undefined);
         } catch (error) {

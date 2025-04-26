@@ -86,6 +86,7 @@ io.on('connection', (socket) => {
         rooms[roomCode] = {
             players: [{
                 socketId: socket.id,
+                _id: socket.user._id,
                 email: socket.user.email,
                 name: socket.user.name,
                 isCreator: true,
@@ -157,6 +158,7 @@ io.on('connection', (socket) => {
         // Player joins the room
         rooms[roomCode].players.push({
             socketId: socket.id,
+            _id: socket.user._id,
             email: socket.user.email,
             name: socket.user.name,
             isCreator: false,
@@ -200,6 +202,7 @@ io.on('connection', (socket) => {
         // Player joins the room
         rooms[roomCode].players.push({
             socketId: socket.id,
+            _id: socket.user._id,
             email: socket.user.email,
             name: socket.user.name,
             isCreator: false,
@@ -297,8 +300,8 @@ io.on('connection', (socket) => {
 
         const leftPlayer = room.players.find(player => player.email === socket.user.email);
 
-        console.log("leftPlayer : ",leftPlayer, typeof leftPlayer)
-        console.log("socket.user.email : ",socket.user.email, typeof socket.user.email)
+        console.log("leftPlayer : ", leftPlayer, typeof leftPlayer)
+        console.log("socket.user.email : ", socket.user.email, typeof socket.user.email)
 
         if (!currentPlayer.isCreator) {
             // Remove the player from the room
@@ -311,7 +314,8 @@ io.on('connection', (socket) => {
             io.to(roomCode).emit('player_left_room', {
                 success: true,
                 message: `Player ${currentPlayer.name} has left the room.`,
-                email: leftPlayer.email
+                email: leftPlayer.email,
+                _id: leftPlayer._id
             });
 
             // You should send the message before the socket leaves the room. Otherwise, 
@@ -368,8 +372,9 @@ io.on('connection', (socket) => {
             message: "The game has started!",
             data: {
                 players: room.players.map(player => ({
-                    email: player.email,
                     name: player.name,
+                    email: player.email,
+                    _id: player._id,
                     tokens: player.tokens
                 })),
                 turnIndex: room.turnIndex
@@ -387,6 +392,8 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         const currentPlayer = room.players[room.turnIndex];
 
+        console.log("room",room);
+        console.log("currentPlayer : ",currentPlayer);
         // Check if the room is full
         if (Number(room.maxPlayers) !== Number(room.players.length)) {
             return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
@@ -405,8 +412,9 @@ io.on('connection', (socket) => {
 
         // Get all players' tokens
         const playersData = room.players.map(player => ({
-            email: player.email,
             name: player.name,
+            _id: player._id,
+            email: player.email,
             tokens: player.tokens
         }));
 
@@ -417,8 +425,9 @@ io.on('connection', (socket) => {
             message: `Player ${currentPlayer.email} rolled the dice.`,
             data: {
                 player: socket.id,
-                email: currentPlayer.email,
                 name: currentPlayer.name,
+                _id: currentPlayer._id,
+                email: currentPlayer.email,
                 diceValue: diceRoll,
                 allPlayers: playersData
             }
@@ -456,8 +465,9 @@ io.on('connection', (socket) => {
 
         // Get all players' tokens
         const playersData = room.players.map(player => ({
-            email: player.email,
             name: player.name,
+            _id: player._id,
+            email: player.email,
             tokens: player.tokens
         }));
 
@@ -467,8 +477,9 @@ io.on('connection', (socket) => {
             message: `Player ${currentPlayer.email} moved token ${tokenIndex}.`,
             data: {
                 player: socket.id,
-                email: currentPlayer.email,
                 name: currentPlayer.name,
+                _id: currentPlayer._id,
+                email: currentPlayer.email,
                 tokenIndex,
                 newPosition: currentPlayer.tokens[tokenIndex],
                 allPlayers: playersData // Include all players' token data
@@ -487,7 +498,8 @@ io.on('connection', (socket) => {
             success: true,
             message: `It's now ${nextPlayer.email}'s turn.`,
             data: {
-                nextPlayer: room.players[room.turnIndex].email
+                nextPlayer: room.players[room.turnIndex].email,
+                _id: room.players[room.turnIndex]._id,
             }
         });
 
