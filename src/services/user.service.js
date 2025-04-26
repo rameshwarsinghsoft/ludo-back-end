@@ -1,5 +1,5 @@
 const Auth = require('../config/auth');
-const  CrudRepository  = require('../repositories/crud.repository');
+const CrudRepository = require('../repositories/crud.repository');
 const { StatusCodes } = require('http-status-codes');
 const { User, Token } = require('../models');
 const MailService = require('./nodemailer.service');
@@ -13,7 +13,7 @@ const TokenRepository = new CrudRepository(Token);
 class AdminService {
 
     async registerUser(userData) {
-        const { name, email, password, device_id, type} = userData;
+        const { name, email, password, device_id, type } = userData;
         try {
             const exists = await this.userExists(email);
             if (exists.success) {
@@ -22,12 +22,19 @@ class AdminService {
 
             const hashedPassword = await Auth.hashPassword(password);
 
-            const newUser = await UserRepository.create({ name, email,  password: hashedPassword, device_id, type })
+            const newUser = await UserRepository.create({ name, email, password: hashedPassword, device_id, type })
             // const token = cryptoTokenGenerator();
             // await TokenRepository.create({ email, token });
             // await MailService.createPasswordEmail(email, token)
 
-            return ServiceResponse(true, StatusCodes.CREATED, "User registered successfully", newUser)
+            let userData = {
+                _id: newUser._id,
+                name: newUser.name,
+                email: newUser.email
+            };
+
+            const token = Auth.generateToken(userData);
+            return ServiceResponse(true, StatusCodes.CREATED, "User registered successfully", newUser, token)
         } catch (error) {
             console.error("Error during user registration:", error);
             CatchError(error);
@@ -78,14 +85,14 @@ class AdminService {
             if (!userCheck.success) {
                 return userCheck;
             }
-            let {is_active} = await UserRepository.toggleActiveStatus({ email });
+            let { is_active } = await UserRepository.toggleActiveStatus({ email });
             return ServiceResponse(true, StatusCodes.OK, is_active ? "User activated successfully." : "User deactivated successfully.");
         } catch (error) {
             cconsole.error("An error occurred while attempting user activation or deactivation:", error);
             CatchError(error);
         }
     }
-    
+
     async softDeleteUser(email) {
         try {
             const userCheck = await this.userExists(email);
