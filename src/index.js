@@ -43,18 +43,42 @@ io.use((socket, next) => {
     }
 });
 
+const COLOR_START_POSITIONS = {
+    blue: 1,
+    red: 14,
+    green: 27,
+    yellow: 40,
+};
+
+// ye global board pe safe spots hain
+const SAFE_SPOTS_GLOBAL = [
+    1, 9, 14, 22, 27, 35, 40, 48
+];
+
+function getGlobalPosition(relPos, color) {
+    if (relPos === 0 || relPos > 57) return -1; // home or finished
+    const start = COLOR_START_POSITIONS[color];
+    // Global board is circular with 52 steps
+    // relative position 1 means token is at start square for that color
+    // globalPos = (start + relPos - 2) % 52 + 1
+    // -2 because relative 1 = start position, so relative 1 = global start,
+    // relative 2 = global start+1, ...
+    return ((start + relPos - 2) % 52) + 1;
+}
+
 const rooms = {};
 
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.user.email} | Socket ID: ${socket.id}`);
 
-    // Creating a room with a specified player limit (2, 4, or 6)
+    // Creating a room with a specified player limit (2 or 4)
 
     socket.on('create_room', ({ maxPlayers }, callback) => {
-        if (![2, 4, 6].includes(maxPlayers)) {
+
+        if (![2, 4].includes(maxPlayers)) {
             const errorResponse = {
                 success: false,
-                message: 'Invalid player limit. Choose 2, 4, or 6 players.',
+                message: 'Invalid player limit. Choose 2 or 4 players.',
             };
             return callback?.(errorResponse);
         }
@@ -62,8 +86,6 @@ io.on('connection', (socket) => {
         do {
             roomCode = Math.floor(10000000 + Math.random() * 90000000).toString();
         } while (rooms[roomCode]); // Ensure unique room code
-
-
         // Create the room
         rooms[roomCode] = {
             players: [{
@@ -72,7 +94,13 @@ io.on('connection', (socket) => {
                 email: socket.user.email,
                 name: socket.user.name,
                 isCreator: true,
-                tokens: [0, 0, 0, 0]  // Each player starts with 4 tokens at position 0
+                color: "blue", //playerColor
+                tokens: [
+                    { relPos: 0, globalPos: -1 },
+                    { relPos: 0, globalPos: -1 },
+                    { relPos: 0, globalPos: -1 },
+                    { relPos: 0, globalPos: -1 }
+                ]
             }],
             maxPlayers,
             gameState: {},
@@ -97,17 +125,18 @@ io.on('connection', (socket) => {
     });
 
     socket.on('join_room', ({ roomCode, desiredPlayers }, callback) => {
-        console.log(`Attempting to join room: ${roomCode}`);
-
-        console.log("rooms : ", rooms)
 
         if (!rooms[roomCode]) {
             return callback?.({ success: false, is_room_code: false, message: 'Invalid room code' });
         }
 
-        // if (desiredPlayers) {
-        //     return callback?.({ success: false, message: `desired Players is required.` });
-        // }
+        if (![2, 4].includes(desiredPlayers)) {
+            const errorResponse = {
+                success: false,
+                message: 'Invalid number of desired players. Please select either 2 or 4 players.',
+            };
+            return callback?.(errorResponse);
+        }
 
         // Validate desiredPlayers: It must be a positive integer
         if (!desiredPlayers || typeof desiredPlayers !== 'number' || desiredPlayers <= 0 || !Number.isInteger(desiredPlayers)) {
@@ -118,9 +147,7 @@ io.on('connection', (socket) => {
         }
 
         if (desiredPlayers && rooms[roomCode].maxPlayers !== desiredPlayers) {
-            // return callback?.({ success: false, is_room_code: true, message: `Invalid selection! The game can only be played with ${rooms[roomCode].maxPlayers} players.` });
             return callback?.({ success: false, is_room_code: true, message: `This room is for ${rooms[roomCode].maxPlayers} players. Do you want to join?.` });
-
         }
 
         if (rooms[roomCode].players.some(player => player.email === socket.user.email)) {
@@ -135,7 +162,16 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: 'Room is full' });
         }
 
-        const maxPlayers = rooms[roomCode].maxPlayers;
+        const { maxPlayers, players } = rooms[roomCode];
+        const totalPlayers = players.length;
+
+        const playerColor =
+            maxPlayers === 2 ? "green" :
+                maxPlayers === 4
+                    ? totalPlayers === 1 ? "red" :
+                        totalPlayers === 2 ? "green" : "yellow"
+                    : null; // default case if needed
+
 
         // Player joins the room
         rooms[roomCode].players.push({
@@ -144,7 +180,13 @@ io.on('connection', (socket) => {
             email: socket.user.email,
             name: socket.user.name,
             isCreator: false,
-            tokens: [0, 0, 0, 0],
+            color: playerColor,
+            tokens: [
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 }
+            ],
         });
         socket.join(roomCode);
 
@@ -157,7 +199,6 @@ io.on('connection', (socket) => {
                 players: rooms[roomCode].players
             }
         };
-        console.log('Emitting player_joined with:', response);
         io.to(roomCode).emit('player_joined', response);
         // ✅ Callback only for the joining player
         callback?.({ success: true, message: "You have successfully joined the room." });
@@ -179,7 +220,15 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: 'Room is full' });
         }
 
-        const maxPlayers = rooms[roomCode].maxPlayers;
+        const { maxPlayers, players } = rooms[roomCode];
+        const totalPlayers = players.length;
+
+        const playerColor =
+            maxPlayers === 2 ? "green" :
+                maxPlayers === 4
+                    ? totalPlayers === 1 ? "red" :
+                        totalPlayers === 2 ? "green" : "yellow"
+                    : null; // default case if needed
 
         // Player joins the room
         rooms[roomCode].players.push({
@@ -188,7 +237,13 @@ io.on('connection', (socket) => {
             email: socket.user.email,
             name: socket.user.name,
             isCreator: false,
-            tokens: [0, 0, 0, 0],
+            color: playerColor,
+            tokens: [
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 },
+                { relPos: 0, globalPos: -1 }
+            ],
         });
         socket.join(roomCode);
 
@@ -201,80 +256,21 @@ io.on('connection', (socket) => {
                 players: rooms[roomCode].players
             }
         };
-        console.log('Emitting player_joined with:', response);
         io.to(roomCode).emit('player_joined', response);
-        // ✅ Callback only for the joining player
         callback?.({ success: true, message: "You have successfully joined the room." });
     });
 
     // Remove the player from the room if they are not playing
     // Delete the room if the creator quits
-    socket.on('quit_room1', ({ roomCode }, callback) => {
-        if (!rooms[roomCode]) {
-            return callback?.({ success: false, message: "Invalid room code." });
-        }
-
-        const room = rooms[roomCode];
-        const currentPlayer = room.players.find(player => player.socketId === socket.id);
-
-        if (!currentPlayer) {
-            return callback?.({ success: false, message: 'Player not found in the room.' });
-        }
-
-        const left_player = room.players.find(player => player.email === socket.user.email);
-        if (!currentPlayer.isCreator) {
-            // Remove player from the room
-            room.players = room.players.filter(player => player.email !== socket.user.email);
-
-            // Ensure player leaves the room
-            socket.leave(roomCode);
-
-            console.log("room.players : ", room.players)
-
-            io.to(roomCode).emit('player_left_room', {
-                // socket.broadcast.emit(roomCode).emit('player_left_room', {
-                success: true,
-                message: `Player ${currentPlayer.name} has left the room.`,
-
-                //remainig player data
-                // data: {
-                //     players: room.players.map(player => ({
-                //         email: player.email,
-                //         name: player.name,
-                //         tokens: player.tokens,
-                //     })),
-                // },
-
-                // left player data
-                // data: {
-                //     left_player.email
-                // },
-                email: left_player.email
-            });
-
-            callback?.({ success: true, message: "Player left the room." });
-
-        } else {
-            // Room creator quits, delete the room
-            io.to(roomCode).emit('room_deleted', {
-                success: true,
-                message: "The room has been deleted.",
-                is_deleted_by: currentPlayer.email,
-                // data: null
-            });
-            console.log("room.players : ", room.players)
-            delete rooms[roomCode];
-            callback?.({ success: true, message: "Room deleted successfully." });
-        }
-    });
-
     socket.on('quit_room', ({ roomCode }, callback) => {
         if (!rooms[roomCode]) {
             return callback?.({ success: false, message: "Invalid room code." });
         }
 
         const room = rooms[roomCode];
-        const currentPlayer = room.players.find(player => player.socketId === socket.id);
+        // const currentPlayer = room.players.find(player => player.socketId === socket.id);
+
+        const currentPlayer = room.players.find(player => player.email === socket.user.email);
 
         if (!currentPlayer) {
             return callback?.({ success: false, message: 'Player not found in the room.' });
@@ -288,7 +284,6 @@ io.on('connection', (socket) => {
         if (!currentPlayer.isCreator) {
             // Remove the player from the room
             room.players = room.players.filter(player => player.email !== socket.user.email);
-            // socket.leave(roomCode); // Player leaves the room
 
             console.log("Remaining players in room:", room.players);
 
@@ -333,13 +328,13 @@ io.on('connection', (socket) => {
 
         const room = rooms[roomCode];
 
-
         // Check if the room is full
         if (Number(room.maxPlayers) !== Number(room.players.length)) {
             return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
         }
 
-        const currentPlayer = rooms[roomCode].players.find(player => player.socketId === socket.id);
+        // const currentPlayer = rooms[roomCode].players.find(player => player.socketId === socket.id);
+        const currentPlayer = rooms[roomCode].players.find(player => player.email === socket.user.email);
         if (!currentPlayer) {
             return callback?.({ success: false, message: 'Player not found in the room.' });
         }
@@ -394,8 +389,11 @@ io.on('connection', (socket) => {
 
         const movableTokenIndexes = currentPlayer.tokens
             .map((token, index) => {
-                if (token === 0 && diceRoll === 6) return index;
-                if (token > 0 && token < 57 && token + diceRoll <= 57) return index;
+                const relPos = token.relPos;
+                // Case 1: Token is at home and can come out
+                if (relPos === 0 && diceRoll === 6) return index;
+                // Case 2: Token is on board and within valid range to move
+                if (relPos > 0 && relPos < 57 && relPos + diceRoll <= 57) return index;
                 return -1;
             })
             .filter(index => index !== -1);
@@ -425,19 +423,43 @@ io.on('connection', (socket) => {
         if (movableTokenIndexes.length === 1) {
             setTimeout(() => {
                 const tokenIndex = movableTokenIndexes[0];
-                const oldPos = currentPlayer.tokens[tokenIndex];
-                const newPos = oldPos === 0 ? 1 : oldPos + diceRoll;
-                currentPlayer.tokens[tokenIndex] = newPos;
+                const oldToken = currentPlayer.tokens[tokenIndex];
+                const isComingOut = oldToken.relPos === 0;
 
-                // If not in a safe spot, kill opponent tokens
+                let isTokenInWinBox = false;
+                const beforeAddValue = oldToken.relPos;
+
+                const newRelPos = isComingOut ? 1 : oldToken.relPos + diceRoll;
+                const afterAddValue = newRelPos;
+
+                if (beforeAddValue !== 57 && afterAddValue === 57) {
+                    isTokenInWinBox = true;
+                }
+                console.log("beforeAddValue : ", beforeAddValue, " afterAddValue : ", afterAddValue, " isTokenInWinBox : ", isTokenInWinBox)
+                // Calculate new globalPos
+                const newGlobalPos = getGlobalPosition(newRelPos, currentPlayer.color);
+
+                // Update token
+                currentPlayer.tokens[tokenIndex] = {
+                    relPos: newRelPos,
+                    globalPos: newGlobalPos
+                };
+
+                // Handle kill (if not on safe spot)
                 let isKill = false;
                 const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
-                if (!safeSpots.includes(newPos)) {
+
+                if (!safeSpots.includes(newGlobalPos)) {
                     for (const player of room.players) {
                         if (player._id !== currentPlayer._id) {
                             for (let i = 0; i < player.tokens.length; i++) {
-                                if (player.tokens[i] === newPos) {
-                                    player.tokens[i] = 0;
+                                const opponentToken = player.tokens[i];
+                                if (
+                                    opponentToken.globalPos === newGlobalPos &&
+                                    opponentToken.relPos > 0 &&
+                                    opponentToken.relPos < 57
+                                ) {
+                                    player.tokens[i] = { relPos: 0, globalPos: -1 };
                                     isKill = true;
                                 }
                             }
@@ -461,13 +483,13 @@ io.on('connection', (socket) => {
                         _id: currentPlayer._id,
                         email: currentPlayer.email,
                         tokenIndex,
-                        newPosition: newPos,
+                        newPosition: currentPlayer.tokens[tokenIndex],
                         allPlayers: updatedPlayers
                     }
                 });
 
-                // Only skip turn if you didn't roll 6 AND didn't kill
-                if (diceRoll !== 6 && !isKill) {
+                // Skip turn if not 6 and no kill
+                if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
                     room.turnIndex = (room.turnIndex + 1) % room.players.length;
                 }
 
@@ -486,13 +508,12 @@ io.on('connection', (socket) => {
             }, 400);
         }
 
-        // ✅ Step 3: If no token can move, skip turn immediately
+        // ✅ Step 3: No movable tokens, skip turn
         if (movableTokenIndexes.length === 0) {
             room.turnIndex = (room.turnIndex + 1) % room.players.length;
-
-            const nextPlayer = room.players[room.turnIndex];
             room.lastDiceRoll = null;
 
+            const nextPlayer = room.players[room.turnIndex];
             io.to(roomCode).emit('player_turn', {
                 success: true,
                 message: `No token could move. It's now ${nextPlayer.email}'s turn.`,
@@ -529,40 +550,55 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: "You must roll the dice before moving a token!" });
         }
 
-        const currentPos = currentPlayer.tokens[tokenIndex];
+        const token = currentPlayer.tokens[tokenIndex];
         const diceRoll = room.lastDiceRoll;
+        const relPos = token.relPos;
 
-        // Rules:
-        if (currentPos === 0 && diceRoll !== 6) {
+        // Rules
+        if (relPos === 0 && diceRoll !== 6) {
             return callback?.({ success: false, message: "You need a 6 to bring the token out." });
         }
 
-        if (currentPos >= 57) {
+        if (relPos >= 57) {
             return callback?.({ success: false, message: "Token already finished." });
         }
 
-        if (currentPos > 0 && currentPos + diceRoll > 57) {
-            return callback?.({ success: false, message: `You need ${57 - currentPos} or less to move.` });
+        if (relPos > 0 && relPos + diceRoll > 57) {
+            return callback?.({ success: false, message: `You need ${57 - relPos} or less to move.` });
         }
 
         // Move the token
-        // Token enters the board (moves from home to starting position)
-        const newPos = currentPos === 0 ? 1 : currentPos + diceRoll;
-        currentPlayer.tokens[tokenIndex] = newPos;
+        let isTokenInWinBox = false;
+        const beforeAddValue = relPos;
+        const newRelPos = relPos === 0 ? 1 : relPos + diceRoll;
+        const afterAddValue = newRelPos;
 
-        // Define the safe spots where tokens cannot be cut
+        if (beforeAddValue !== 57 && afterAddValue === 57) {
+            isTokenInWinBox = true;
+        }
+        const newGlobalPos = getGlobalPosition(newRelPos, currentPlayer.color); // Make sure `color` is stored in currentPlayer
+
+        currentPlayer.tokens[tokenIndex] = {
+            relPos: newRelPos,
+            globalPos: newGlobalPos
+        };
+
+        // Safe spots
         const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
         let isKill = false;
-        // Check if the new position is not a safe spot
-        if (!safeSpots.includes(newPos)) {
-            // Loop through all other players
+
+        // Check for kills (only if not a safe spot)
+        if (!safeSpots.includes(newGlobalPos)) {
             for (const player of room.players) {
                 if (player._id !== currentPlayer._id) {
-                    // Check each token of the opponent player
                     for (let i = 0; i < 4; i++) {
-                        // If token is on the same spot as current player's token
-                        if (player.tokens[i] === newPos) {
-                            player.tokens[i] = 0; // Send the opponent's token back to home
+                        const opponentToken = player.tokens[i];
+                        if (
+                            opponentToken.globalPos === newGlobalPos &&
+                            opponentToken.relPos > 0 &&
+                            opponentToken.relPos < 57
+                        ) {
+                            player.tokens[i] = { relPos: 0, globalPos: -1 }; // Send back to home
                             isKill = true;
                         }
                     }
@@ -570,9 +606,8 @@ io.on('connection', (socket) => {
             }
         }
 
-
-        // Check win condition
-        const allFinished = currentPlayer.tokens.every(pos => pos === 57);
+        // Check win
+        const allFinished = currentPlayer.tokens.every(t => t.relPos === 57);
         if (allFinished) {
             io.to(roomCode).emit('game_won', {
                 success: true,
@@ -583,7 +618,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Broadcast token moved
+        // Emit token moved
         const playersData = room.players.map(player => ({
             name: player.name,
             _id: player._id,
@@ -600,18 +635,18 @@ io.on('connection', (socket) => {
                 _id: currentPlayer._id,
                 email: currentPlayer.email,
                 tokenIndex,
-                newPosition: newPos,
+                newPosition: { relPos: newRelPos, globalPos: newGlobalPos },
                 allPlayers: playersData
             }
         });
 
-        // Only skip turn if you didn't roll 6 AND didn't kill
-        if (diceRoll !== 6 && !isKill) {
+        // Update turn
+        if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
             room.turnIndex = (room.turnIndex + 1) % room.players.length;
         }
 
         const nextPlayer = room.players[room.turnIndex];
-        room.lastDiceRoll = null; // Reset for next player
+        room.lastDiceRoll = null;
 
         io.to(roomCode).emit('player_turn', {
             success: true,
