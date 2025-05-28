@@ -43,6 +43,40 @@ io.use((socket, next) => {
     }
 });
 
+function handleDiceRoll(currentPlayer) {
+    // Initialize dice_rolls if not present
+    if (!currentPlayer.dice || !Array.isArray(currentPlayer.dice.dice_rolls)) {
+        currentPlayer.dice = { dice_rolls: [1, 1, 1] };
+    }
+
+    // Roll dice between 1–6
+    let diceRoll = Math.floor(Math.random() * 6) + 1;
+
+    // Maintain last 3 rolls
+    currentPlayer.dice.dice_rolls.shift();
+    currentPlayer.dice.dice_rolls.push(diceRoll);
+
+    // Directly check if all are 6 (no helper function)
+    const allSix = currentPlayer.dice.dice_rolls.length === 3 &&
+        currentPlayer.dice.dice_rolls.every(val => val === 6);
+
+    if (allSix) {
+        console.log(`${currentPlayer.name} rolled 6 three times in a row!`);
+
+        // Reset all rolls to 1
+        currentPlayer.dice.dice_rolls.fill(1);
+
+        // Re-roll between 1–5
+        diceRoll = Math.floor(Math.random() * 5) + 1;
+
+        // Update the new roll
+        currentPlayer.dice.dice_rolls.shift();
+        currentPlayer.dice.dice_rolls.push(diceRoll);
+    }
+
+    return diceRoll;
+}
+
 const COLOR_START_POSITIONS = {
     blue: 1,
     red: 14,
@@ -50,19 +84,14 @@ const COLOR_START_POSITIONS = {
     yellow: 40,
 };
 
-// ye global board pe safe spots hain
-const SAFE_SPOTS_GLOBAL = [
-    1, 9, 14, 22, 27, 35, 40, 48
-];
-
 function getGlobalPosition(relPos, color) {
-    if (relPos === 0 || relPos > 57) return -1; // home or finished
-    const start = COLOR_START_POSITIONS[color];
-    // Global board is circular with 52 steps
-    // relative position 1 means token is at start square for that color
-    // globalPos = (start + relPos - 2) % 52 + 1
-    // -2 because relative 1 = start position, so relative 1 = global start,
-    // relative 2 = global start+1, ...
+    if (relPos === 0) return -1;         // Token is still in home
+    if (relPos > 51) return null;        // Token is in final stretch (winning path)
+
+    const start = COLOR_START_POSITIONS[color]; // Starting global position for the color
+    // Calculate global position on circular board (1 to 52)
+    // relPos 1 means token is on start square for that color
+    // Formula: (start + relPos - 2) % 52 + 1
     return ((start + relPos - 2) % 52) + 1;
 }
 
@@ -100,7 +129,10 @@ io.on('connection', (socket) => {
                     { relPos: 0, globalPos: -1 },
                     { relPos: 0, globalPos: -1 },
                     { relPos: 0, globalPos: -1 }
-                ]
+                ],
+                dice: {
+                    dice_rolls: [1, 1, 1] //for checking continue 3 time six
+                },
             }],
             maxPlayers,
             gameState: {},
@@ -187,6 +219,9 @@ io.on('connection', (socket) => {
                 { relPos: 0, globalPos: -1 },
                 { relPos: 0, globalPos: -1 }
             ],
+            dice: {
+                dice_rolls: [1, 1, 1] //for checking continue 3 time six
+            },
         });
         socket.join(roomCode);
 
@@ -244,6 +279,9 @@ io.on('connection', (socket) => {
                 { relPos: 0, globalPos: -1 },
                 { relPos: 0, globalPos: -1 }
             ],
+            dice: {
+                dice_rolls: [1, 1, 1] //for checking continue 3 time six
+            },
         });
         socket.join(roomCode);
 
@@ -384,7 +422,7 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: "Please move the token first, then roll the dice." });
         }
 
-        const diceRoll = Math.floor(Math.random() * 6) + 1;
+        const diceRoll = handleDiceRoll(currentPlayer);
         room.lastDiceRoll = diceRoll;
 
         const movableTokenIndexes = currentPlayer.tokens
@@ -426,47 +464,95 @@ io.on('connection', (socket) => {
                 const oldToken = currentPlayer.tokens[tokenIndex];
                 const isComingOut = oldToken.relPos === 0;
 
-                let isTokenInWinBox = false;
                 const beforeAddValue = oldToken.relPos;
-
                 const newRelPos = isComingOut ? 1 : oldToken.relPos + diceRoll;
                 const afterAddValue = newRelPos;
 
+                let isTokenInWinBox = false;
                 if (beforeAddValue !== 57 && afterAddValue === 57) {
                     isTokenInWinBox = true;
                 }
-                console.log("beforeAddValue : ", beforeAddValue, " afterAddValue : ", afterAddValue, " isTokenInWinBox : ", isTokenInWinBox)
-                // Calculate new globalPos
+
                 const newGlobalPos = getGlobalPosition(newRelPos, currentPlayer.color);
 
-                // Update token
+                // Update the token
                 currentPlayer.tokens[tokenIndex] = {
                     relPos: newRelPos,
                     globalPos: newGlobalPos
                 };
 
-                // Handle kill (if not on safe spot)
-                let isKill = false;
-                const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
+                // Safe spots where tokens can't be killed
+                // const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
+                // let isKill = false;
 
+                // // Kill opponent tokens if not on a safe spot
+                // if (!safeSpots.includes(newGlobalPos)) {
+                //     for (const player of room.players) {
+                //         if (player._id !== currentPlayer._id) {
+                //             for (let i = 0; i < player.tokens.length; i++) {
+                //                 const opponentToken = player.tokens[i];
+                //                 if (
+                //                     typeof opponentToken.globalPos === 'number' &&
+                //                     opponentToken.globalPos >= 0 &&
+                //                     opponentToken.globalPos === newGlobalPos &&
+                //                     opponentToken.relPos > 0 &&
+                //                     opponentToken.relPos < 57
+                //                 ) {
+                //                     // Kill opponent token (send back to home)
+                //                     player.tokens[i] = { relPos: 0, globalPos: -1 };
+                //                     isKill = true;
+                //                 }
+                //             }
+                //         }
+                //     }
+                // }
+
+                const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
+                let isKill = false;
+
+                // Only try to kill if not in safe spot
                 if (!safeSpots.includes(newGlobalPos)) {
                     for (const player of room.players) {
                         if (player._id !== currentPlayer._id) {
-                            for (let i = 0; i < player.tokens.length; i++) {
-                                const opponentToken = player.tokens[i];
-                                if (
-                                    opponentToken.globalPos === newGlobalPos &&
-                                    opponentToken.relPos > 0 &&
-                                    opponentToken.relPos < 57
-                                ) {
-                                    player.tokens[i] = { relPos: 0, globalPos: -1 };
-                                    isKill = true;
+                            // Count opponent tokens at that position
+                            const opponentTokensAtPos = player.tokens.filter(
+                                (t) =>
+                                    typeof t.globalPos === 'number' &&
+                                    t.globalPos === newGlobalPos &&
+                                    t.relPos > 0 &&
+                                    t.relPos < 57
+                            );
+
+                            // Count our own tokens at that position
+                            const ownTokensAtPos = currentPlayer.tokens.filter(
+                                (t) =>
+                                    typeof t.globalPos === 'number' &&
+                                    t.globalPos === newGlobalPos &&
+                                    t.relPos > 0 &&
+                                    t.relPos < 57
+                            );
+
+                            // Only kill if exactly one opponent token is at the position and none of our own
+                            if (opponentTokensAtPos.length === 1 && ownTokensAtPos.length === 0) {
+                                // Find and kill the opponent token at that position
+                                for (let i = 0; i < player.tokens.length; i++) {
+                                    const opponentToken = player.tokens[i];
+                                    if (
+                                        typeof opponentToken.globalPos === 'number' &&
+                                        opponentToken.globalPos === newGlobalPos
+                                    ) {
+                                        player.tokens[i] = { relPos: 0, globalPos: -1 }; // send home
+                                        isKill = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
+
+                // Prepare updated players data for emit
                 const updatedPlayers = room.players.map(player => ({
                     name: player.name,
                     _id: player._id,
@@ -488,14 +574,26 @@ io.on('connection', (socket) => {
                     }
                 });
 
-                // Skip turn if not 6 and no kill
+                // Check if player finished all tokens
+                const allFinished = currentPlayer.tokens.every(t => t.relPos === 57);
+                if (allFinished) {
+                    io.to(roomCode).emit('game_won', {
+                        success: true,
+                        message: `${currentPlayer.name} has won the game!`,
+                        winner: currentPlayer.email,
+                        room
+                    });
+                    return;
+                }
+
+                // Change turn only if no 6 rolled, no kill, and token not finished
                 if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
                     room.turnIndex = (room.turnIndex + 1) % room.players.length;
                 }
 
-                const nextPlayer = room.players[room.turnIndex];
                 room.lastDiceRoll = null;
 
+                const nextPlayer = room.players[room.turnIndex];
                 io.to(roomCode).emit('player_turn', {
                     success: true,
                     message: `It's now ${nextPlayer.email}'s turn.`,
@@ -505,7 +603,7 @@ io.on('connection', (socket) => {
                     }
                 });
 
-            }, 400);
+            }, 500);
         }
 
         // ✅ Step 3: No movable tokens, skip turn
@@ -554,7 +652,6 @@ io.on('connection', (socket) => {
         const diceRoll = room.lastDiceRoll;
         const relPos = token.relPos;
 
-        // Rules
         if (relPos === 0 && diceRoll !== 6) {
             return callback?.({ success: false, message: "You need a 6 to bring the token out." });
         }
@@ -567,7 +664,6 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: `You need ${57 - relPos} or less to move.` });
         }
 
-        // Move the token
         let isTokenInWinBox = false;
         const beforeAddValue = relPos;
         const newRelPos = relPos === 0 ? 1 : relPos + diceRoll;
@@ -576,37 +672,86 @@ io.on('connection', (socket) => {
         if (beforeAddValue !== 57 && afterAddValue === 57) {
             isTokenInWinBox = true;
         }
-        const newGlobalPos = getGlobalPosition(newRelPos, currentPlayer.color); // Make sure `color` is stored in currentPlayer
+
+        // **Use the new getGlobalPosition function here**
+        const newGlobalPos = getGlobalPosition(newRelPos, currentPlayer.color);
 
         currentPlayer.tokens[tokenIndex] = {
             relPos: newRelPos,
             globalPos: newGlobalPos
         };
 
-        // Safe spots
+        // const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
+        // let isKill = false;
+
+        // // Check for kills only if newGlobalPos is a valid number and not a safe spot
+        // if (typeof newGlobalPos === 'number' && newGlobalPos >= 0 && !safeSpots.includes(newGlobalPos)) {
+        //     for (const player of room.players) {
+        //         if (player._id !== currentPlayer._id) {
+        //             for (let i = 0; i < 4; i++) {
+        //                 const opponentToken = player.tokens[i];
+        //                 // Kill opponent token if on same global position and on the main track (relPos between 1 and 51)
+        //                 if (
+        //                     typeof opponentToken.globalPos === 'number' &&
+        //                     opponentToken.globalPos >= 0 &&
+        //                     opponentToken.globalPos === newGlobalPos &&
+        //                     opponentToken.relPos > 0 &&
+        //                     opponentToken.relPos <= 51
+        //                 ) {
+
+
+        //                     // add new logic to check 2 token in same position then not kill
+        //                     // 
+
+        //                     player.tokens[i] = { relPos: 0, globalPos: -1 }; // Send back to home
+        //                     isKill = true;
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
         const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
         let isKill = false;
 
-        // Check for kills (only if not a safe spot)
-        if (!safeSpots.includes(newGlobalPos)) {
+        if (typeof newGlobalPos === 'number' && newGlobalPos >= 0 && !safeSpots.includes(newGlobalPos)) {
+            let totalTokensAtPosition = 0;
+            let opponentTokensAtPosition = [];
+            let ownTokensAtPosition = 0;
+
             for (const player of room.players) {
-                if (player._id !== currentPlayer._id) {
-                    for (let i = 0; i < 4; i++) {
-                        const opponentToken = player.tokens[i];
-                        if (
-                            opponentToken.globalPos === newGlobalPos &&
-                            opponentToken.relPos > 0 &&
-                            opponentToken.relPos < 57
-                        ) {
-                            player.tokens[i] = { relPos: 0, globalPos: -1 }; // Send back to home
-                            isKill = true;
+                for (let i = 0; i < 4; i++) {
+                    const token = player.tokens[i];
+                    if (
+                        typeof token.globalPos === 'number' &&
+                        token.globalPos === newGlobalPos &&
+                        token.relPos > 0 &&
+                        token.relPos <= 51
+                    ) {
+                        totalTokensAtPosition++;
+
+                        if (player._id === currentPlayer._id) {
+                            ownTokensAtPosition++;
+                        } else {
+                            opponentTokensAtPosition.push({ player, tokenIndex: i });
                         }
                     }
                 }
             }
+
+            // Ludo Kill Conditions:
+            if (
+                totalTokensAtPosition === 2 &&                 // Total 2 tokens at the position
+                opponentTokensAtPosition.length === 1 &&       // Only one of them is opponent's
+                ownTokensAtPosition === 1                      // And one is ours (the moving one)
+            ) {
+                const { player, tokenIndex } = opponentTokensAtPosition[0];
+                player.tokens[tokenIndex] = { relPos: 0, globalPos: -1 }; // Send back to home
+                isKill = true;
+            }
         }
 
-        // Check win
+        // Check if player has won (all tokens finished)
         const allFinished = currentPlayer.tokens.every(t => t.relPos === 57);
         if (allFinished) {
             io.to(roomCode).emit('game_won', {
@@ -618,7 +763,7 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // Emit token moved
+        // Emit token moved event to all players in room
         const playersData = room.players.map(player => ({
             name: player.name,
             _id: player._id,
@@ -640,7 +785,7 @@ io.on('connection', (socket) => {
             }
         });
 
-        // Update turn
+        // Update turn logic
         if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
             room.turnIndex = (room.turnIndex + 1) % room.players.length;
         }
