@@ -124,6 +124,10 @@ io.on('connection', (socket) => {
                 name: socket.user.name,
                 isCreator: true,
                 color: "blue", //playerColor
+                gameStatus: {
+                    state: "active",
+                    reason: null
+                },
                 tokens: [
                     { relPos: 0, globalPos: -1 },
                     { relPos: 0, globalPos: -1 },
@@ -213,6 +217,10 @@ io.on('connection', (socket) => {
             name: socket.user.name,
             isCreator: false,
             color: playerColor,
+            gameStatus: {
+                state: "active",
+                reason: null
+            },
             tokens: [
                 { relPos: 0, globalPos: -1 },
                 { relPos: 0, globalPos: -1 },
@@ -273,6 +281,10 @@ io.on('connection', (socket) => {
             name: socket.user.name,
             isCreator: false,
             color: playerColor,
+            gameStatus: {
+                state: "active",
+                reason: null
+            },
             tokens: [
                 { relPos: 0, globalPos: -1 },
                 { relPos: 0, globalPos: -1 },
@@ -399,6 +411,76 @@ io.on('connection', (socket) => {
         callback?.({ success: true, message: "Game started successfully!" });
     });
 
+    socket.on('quit_game', ({ roomCode }, callback) => {
+        const room = rooms[roomCode];
+
+        if (!room) {
+            return callback?.({ success: false, message: "Invalid room code." });
+        }
+
+        const currentPlayer = room.players.find(
+            (player) => player.email === socket.user.email
+        );
+
+        if (!currentPlayer) {
+            return callback?.({ success: false, message: "Player not found in the room." });
+        }
+
+        const playerIndex = room.players.findIndex(player => player.email === currentPlayer.email);
+        if (playerIndex === room.turnIndex) {
+            room.turnIndex = (room.turnIndex + 1) % room.players.length;
+        }
+        // 🟡 Mark player as left manually
+        currentPlayer.gameStatus = {
+            state: "left",
+            reason: "manual",
+        };
+
+        // 🔵 Count active players
+        const remainingActivePlayers = room.players.filter(
+            (player) => player.gameStatus.state !== "left"
+        );
+
+        console.log("remainingActivePlayers : ", remainingActivePlayers)
+        // console.log("room.players : ", room.players)
+
+        if (remainingActivePlayers.length <= 1) {
+            // 🟥 End the game — too few active players
+            io.to(roomCode).emit("game_over", {
+                success: true,
+                message: `The game has ended because ${currentPlayer.name} quit.`,
+                data: {
+                    player_quit: {
+                        email: currentPlayer.email,
+                        _id: currentPlayer._id,
+                    },
+                    players: room.players,
+                }
+
+            });
+
+            return callback?.({
+                success: true,
+                message: "You quit the game. Game over.",
+            });
+        }
+
+        // 🟢 Continue game — notify others about the quit
+        io.to(roomCode).emit("player_quit", {
+            success: true,
+            message: `Player ${currentPlayer.name} has quit the game.`,
+            player_quit: {
+                email: currentPlayer.email,
+                _id: currentPlayer._id,
+            }
+        });
+
+        return callback?.({
+            success: true,
+            message: "You quit the game successfully.",
+        });
+    });
+
     socket.on('roll_dice', ({ roomCode }, callback) => {
         const room = rooms[roomCode];
         if (!room) {
@@ -418,6 +500,13 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: "Not your turn!" });
         }
 
+
+        if (currentPlayer.email !== socket.user.email) {
+            return callback?.({ success: false, message: "Not your turn!" });
+        }
+
+        console.log("currentPlayer : ", currentPlayer)
+        console.log(socket.id, socket.user.email)
         if (room.lastDiceRoll !== null) {
             return callback?.({ success: false, message: "Please move the token first, then roll the dice." });
         }
@@ -587,10 +676,19 @@ io.on('connection', (socket) => {
                 }
 
                 // Change turn only if no 6 rolled, no kill, and token not finished
+                // if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
+                //     room.turnIndex = (room.turnIndex + 1) % room.players.length;
+                // }
+                console.log("room.turnIndex : ", room.turnIndex)
                 if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
-                    room.turnIndex = (room.turnIndex + 1) % room.players.length;
-                }
 
+                    let nextIndex = room.turnIndex;
+                    do {
+                        nextIndex = (nextIndex + 1) % room.players.length;
+                    } while (room.players[nextIndex].gameStatus.state === "left");
+                    room.turnIndex = nextIndex;
+                }
+                console.log("room.turnIndex : ", room.turnIndex)
                 room.lastDiceRoll = null;
 
                 const nextPlayer = room.players[room.turnIndex];
@@ -608,7 +706,16 @@ io.on('connection', (socket) => {
 
         // ✅ Step 3: No movable tokens, skip turn
         if (movableTokenIndexes.length === 0) {
-            room.turnIndex = (room.turnIndex + 1) % room.players.length;
+            // room.turnIndex = (room.turnIndex + 1) % room.players.length;
+            console.log("room.turnIndex 0 : ", room.turnIndex)
+            let nextIndex = room.turnIndex;
+            do {
+                nextIndex = (nextIndex + 1) % room.players.length;
+            } while (room.players[nextIndex].gameStatus.state === "left");
+            room.turnIndex = nextIndex;
+            console.log("room.turnIndex : 0 ", room.turnIndex)
+
+
             room.lastDiceRoll = null;
 
             const nextPlayer = room.players[room.turnIndex];
@@ -635,11 +742,17 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (!room) return callback?.({ success: false, message: "Invalid room code" });
 
+        console.log("#########################")
+        console.log("tokenIndex : ", tokenIndex)
         const currentPlayer = room.players[room.turnIndex];
+        console.log("currentPlayer : ", currentPlayer)
         if (currentPlayer.socketId !== socket.id) {
             return callback?.({ success: false, message: "It's not your turn!" });
         }
 
+        if (tokenIndex == null || tokenIndex === "") {
+            return callback?.({ success: false, message: "token index is required" });
+        }
         if (tokenIndex < 0 || tokenIndex > 3) {
             return callback?.({ success: false, message: "Invalid token index" });
         }
@@ -649,8 +762,12 @@ io.on('connection', (socket) => {
         }
 
         const token = currentPlayer.tokens[tokenIndex];
+        console.log("token : ", token)
         const diceRoll = room.lastDiceRoll;
+        console.log("diceRoll : ", diceRoll)
+        // console.log("token : ",token)
         const relPos = token.relPos;
+        console.log("relPos : ", relPos)
 
         if (relPos === 0 && diceRoll !== 6) {
             return callback?.({ success: false, message: "You need a 6 to bring the token out." });
@@ -768,7 +885,8 @@ io.on('connection', (socket) => {
             name: player.name,
             _id: player._id,
             email: player.email,
-            tokens: player.tokens
+            tokens: player.tokens,
+            gameStatus: player.gameStatus,
         }));
 
         io.to(roomCode).emit('token_moved', {
@@ -786,10 +904,20 @@ io.on('connection', (socket) => {
         });
 
         // Update turn logic
+        // if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
+        //     room.turnIndex = (room.turnIndex + 1) % room.players.length;
+        // }
+        // skip turn if player state is left
+        console.log("room.turnIndex before: ", room.turnIndex)
         if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
-            room.turnIndex = (room.turnIndex + 1) % room.players.length;
-        }
 
+            let nextIndex = room.turnIndex;
+            do {
+                nextIndex = (nextIndex + 1) % room.players.length;
+            } while (room.players[nextIndex].gameStatus.state === "left");
+            room.turnIndex = nextIndex;
+        }
+        console.log("room.turnIndex after: ", room.turnIndex)
         const nextPlayer = room.players[room.turnIndex];
         room.lastDiceRoll = null;
 
