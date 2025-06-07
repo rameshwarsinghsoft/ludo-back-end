@@ -75,7 +75,7 @@ function handleDiceRoll(currentPlayer) {
     }
 
     return diceRoll;
-}
+};
 
 const COLOR_START_POSITIONS = {
     blue: 1,
@@ -93,7 +93,7 @@ function getGlobalPosition(relPos, color) {
     // relPos 1 means token is on start square for that color
     // Formula: (start + relPos - 2) % 52 + 1
     return ((start + relPos - 2) % 52) + 1;
-}
+};
 
 const rooms = {};
 
@@ -101,7 +101,6 @@ io.on('connection', (socket) => {
     console.log(`User connected: ${socket.user.email} | Socket ID: ${socket.id}`);
 
     // Creating a room with a specified player limit (2 or 4)
-
     socket.on('create_room', ({ maxPlayers }, callback) => {
 
         if (![2, 4].includes(maxPlayers)) {
@@ -126,7 +125,11 @@ io.on('connection', (socket) => {
                 color: "blue", //playerColor
                 gameStatus: {
                     state: "active",
-                    reason: null
+                    reason: null,
+                    auto_moves: 5,
+                    rank: 0,
+                    name: socket.user.name,
+                    outcome: null
                 },
                 tokens: [
                     { relPos: 0, globalPos: -1 },
@@ -144,10 +147,8 @@ io.on('connection', (socket) => {
             lastDiceRoll: null // Stores the latest dice roll value
         };
 
-        // Join the room
+        // Creator join the room
         socket.join(roomCode);
-        console.log(`Room ${roomCode} created by ${socket.user.email} | Max Players: ${maxPlayers}`);
-
         const response = {
             success: true,
             message: "Room created successfully.",
@@ -190,10 +191,6 @@ io.on('connection', (socket) => {
             return callback?.({ success: false, message: 'You are already in this room' });
         }
 
-        if (rooms[roomCode].players.some(player => player.socketId === socket.id)) {
-            return callback?.({ success: false, message: 'You are already in this room' });
-        }
-
         if (rooms[roomCode].players.length >= rooms[roomCode].maxPlayers) {
             return callback?.({ success: false, message: 'Room is full' });
         }
@@ -219,7 +216,11 @@ io.on('connection', (socket) => {
             color: playerColor,
             gameStatus: {
                 state: "active",
-                reason: null
+                reason: null,
+                auto_moves: 5,
+                rank: 0,
+                name: socket.user.name,
+                outcome: null
             },
             tokens: [
                 { relPos: 0, globalPos: -1 },
@@ -243,7 +244,6 @@ io.on('connection', (socket) => {
             }
         };
         io.to(roomCode).emit('player_joined', response);
-        // ✅ Callback only for the joining player
         callback?.({ success: true, message: "You have successfully joined the room." });
     });
 
@@ -283,7 +283,11 @@ io.on('connection', (socket) => {
             color: playerColor,
             gameStatus: {
                 state: "active",
-                reason: null
+                reason: null,
+                auto_moves: 5,
+                rank: 0,
+                name: socket.user.name,
+                outcome: null
             },
             tokens: [
                 { relPos: 0, globalPos: -1 },
@@ -292,7 +296,7 @@ io.on('connection', (socket) => {
                 { relPos: 0, globalPos: -1 }
             ],
             dice: {
-                dice_rolls: [1, 1, 1] //for checking continue 3 time six
+                dice_rolls: [1, 1, 1]
             },
         });
         socket.join(roomCode);
@@ -318,8 +322,6 @@ io.on('connection', (socket) => {
         }
 
         const room = rooms[roomCode];
-        // const currentPlayer = room.players.find(player => player.socketId === socket.id);
-
         const currentPlayer = room.players.find(player => player.email === socket.user.email);
 
         if (!currentPlayer) {
@@ -328,14 +330,9 @@ io.on('connection', (socket) => {
 
         const leftPlayer = room.players.find(player => player.email === socket.user.email);
 
-        console.log("leftPlayer : ", leftPlayer, typeof leftPlayer)
-        console.log("socket.user.email : ", socket.user.email, typeof socket.user.email)
-
         if (!currentPlayer.isCreator) {
             // Remove the player from the room
             room.players = room.players.filter(player => player.email !== socket.user.email);
-
-            console.log("Remaining players in room:", room.players);
 
             // Notify other players about the departure
             io.to(roomCode).emit('player_left_room', {
@@ -348,9 +345,7 @@ io.on('connection', (socket) => {
             // You should send the message before the socket leaves the room. Otherwise, 
             // the current socket will be removed from the group before the message is sent.
             socket.leave(roomCode); // Player leaves the room
-
             callback?.({ success: true, message: "Player left the room." });
-
         } else {
             // Room creator quits → Delete the room
             io.to(roomCode).emit('room_deleted', {
@@ -366,7 +361,6 @@ io.on('connection', (socket) => {
                 io.sockets.sockets.get(player.socketId)?.leave(roomCode);
             });
             delete rooms[roomCode];
-
             callback?.({ success: true, message: "Room deleted successfully." });
         }
     });
@@ -377,13 +371,11 @@ io.on('connection', (socket) => {
         }
 
         const room = rooms[roomCode];
-
         // Check if the room is full
         if (Number(room.maxPlayers) !== Number(room.players.length)) {
             return callback?.({ success: false, message: "The room is not full yet. Please wait for other players to join." });
         }
 
-        // const currentPlayer = rooms[roomCode].players.find(player => player.socketId === socket.id);
         const currentPlayer = rooms[roomCode].players.find(player => player.email === socket.user.email);
         if (!currentPlayer) {
             return callback?.({ success: false, message: 'Player not found in the room.' });
@@ -432,6 +424,7 @@ io.on('connection', (socket) => {
         }
         // 🟡 Mark player as left manually
         currentPlayer.gameStatus = {
+            ...currentPlayer.gameStatus,
             state: "left",
             reason: "manual",
         };
@@ -446,6 +439,50 @@ io.on('connection', (socket) => {
 
         if (remainingActivePlayers.length <= 1) {
             // 🟥 End the game — too few active players
+            if (room.maxPlayers === 2) {
+                room.players.forEach(player => {
+                    if (player.email === socket.user.email) {
+                        player.gameStatus = {
+                            _id: player._id,
+                            ...player.gameStatus,
+                            rank: 2,
+                            outcome: "left"
+                        };
+                    } else {
+                        player.gameStatus = {
+                            _id: player._id,
+                            ...player.gameStatus,
+                            rank: 1,
+                            outcome: "100"
+                        };
+                    }
+                });
+            } else {
+                room.players.forEach(player => {
+                    if (player.email === socket.user.email) {
+                        player.gameStatus = {
+                            _id: player._id,
+                            ...player.gameStatus,
+                            rank: 2,
+                            outcome: "left"
+                        };
+                    } else {
+                        if (player.gameStatus.state === "active") {
+                            player.gameStatus = {
+                                _id: player._id,
+                                ...player.gameStatus,
+                                rank: 1,
+                                outcome: "100"
+                            };
+                        }
+                    }
+                });
+            }
+
+            // Sort by rank and return a mapped array (if needed)
+            const winningList = room.players
+                .map(player => player.gameStatus)
+                .sort((a, b) => a.rank - b.rank);
             io.to(roomCode).emit("game_over", {
                 success: true,
                 message: `The game has ended because ${currentPlayer.name} quit.`,
@@ -454,18 +491,37 @@ io.on('connection', (socket) => {
                         email: currentPlayer.email,
                         _id: currentPlayer._id,
                     },
-                    players: room.players,
+                    winningList,
                 }
-
             });
 
             return callback?.({
                 success: true,
                 message: "You quit the game. Game over.",
             });
+        } else {
+            const quitterRank = remainingActivePlayers.length + 1;
+            room.players.forEach(player => {
+                if (player.email === socket.user.email) {
+                    player.gameStatus = {
+                        _id: player._id,
+                        ...player.gameStatus,
+                        rank: quitterRank,
+                        outcome: "left"
+                    };
+                }
+            });
         }
 
         // 🟢 Continue game — notify others about the quit
+        // playersToNotify.forEach(player => {
+        //     io.to(player.socketId).emit("game_over", {
+        //         success: true,
+        //         message: `The game has ended because ${quittingPlayer.name} quit.`,
+        //         data: {}
+        //     });
+        // });
+
         io.to(roomCode).emit("player_quit", {
             success: true,
             message: `Player ${currentPlayer.name} has quit the game.`,
@@ -496,17 +552,10 @@ io.on('connection', (socket) => {
             });
         }
 
-        if (currentPlayer.socketId !== socket.id) {
-            return callback?.({ success: false, message: "Not your turn!" });
-        }
-
-
         if (currentPlayer.email !== socket.user.email) {
             return callback?.({ success: false, message: "Not your turn!" });
         }
 
-        console.log("currentPlayer : ", currentPlayer)
-        console.log(socket.id, socket.user.email)
         if (room.lastDiceRoll !== null) {
             return callback?.({ success: false, message: "Please move the token first, then roll the dice." });
         }
@@ -569,32 +618,6 @@ io.on('connection', (socket) => {
                     relPos: newRelPos,
                     globalPos: newGlobalPos
                 };
-
-                // Safe spots where tokens can't be killed
-                // const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
-                // let isKill = false;
-
-                // // Kill opponent tokens if not on a safe spot
-                // if (!safeSpots.includes(newGlobalPos)) {
-                //     for (const player of room.players) {
-                //         if (player._id !== currentPlayer._id) {
-                //             for (let i = 0; i < player.tokens.length; i++) {
-                //                 const opponentToken = player.tokens[i];
-                //                 if (
-                //                     typeof opponentToken.globalPos === 'number' &&
-                //                     opponentToken.globalPos >= 0 &&
-                //                     opponentToken.globalPos === newGlobalPos &&
-                //                     opponentToken.relPos > 0 &&
-                //                     opponentToken.relPos < 57
-                //                 ) {
-                //                     // Kill opponent token (send back to home)
-                //                     player.tokens[i] = { relPos: 0, globalPos: -1 };
-                //                     isKill = true;
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
 
                 const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
                 let isKill = false;
@@ -663,23 +686,58 @@ io.on('connection', (socket) => {
                     }
                 });
 
-                // Check if player finished all tokens
-                const allFinished = currentPlayer.tokens.every(t => t.relPos === 57);
+                // Ensure all tokens have relPos === 57 (converted to number for safety)
+                console.log("currentPlayer.tokens : ", currentPlayer.tokens)
+                const allFinished = currentPlayer.tokens.every((t, i) => {
+                    const relPosNum = Number(t.relPos);
+                    const isFinished = relPosNum === 57;
+                    console.log(`Token ${i} -> relPos: ${t.relPos} (type: ${typeof t.relPos}), isFinished: ${isFinished}`);
+                    return isFinished;
+                });
+
                 if (allFinished) {
-                    io.to(roomCode).emit('game_won', {
+                    console.log(`${currentPlayer.name} has finished all tokens!`);
+
+                    room.players.forEach(player => {
+                        if (player.email === socket.user.email) {
+                            player.gameStatus = {
+                                _id: player._id,
+                                ...player.gameStatus,
+                                rank: 1,
+                                outcome: "100"
+                            };
+                        } else {
+                            player.gameStatus = {
+                                _id: player._id,
+                                ...player.gameStatus,
+                                rank: 2,
+                                outcome: "loss"
+                            };
+                        }
+                    });
+
+                    const winningList = room.players
+                        .map(player => player.gameStatus)
+                        .sort((a, b) => a.rank - b.rank);
+
+                    console.log("winningList ::", winningList);
+
+                    io.to(roomCode).emit("game_over", {
                         success: true,
                         message: `${currentPlayer.name} has won the game!`,
-                        winner: currentPlayer.email,
-                        room
+                        data: {
+                            player_quit: {
+                                email: "",
+                                _id: "",
+                            },
+                            winningList,
+                        }
                     });
-                    return;
                 }
-
                 // Change turn only if no 6 rolled, no kill, and token not finished
                 // if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
                 //     room.turnIndex = (room.turnIndex + 1) % room.players.length;
                 // }
-                console.log("room.turnIndex : ", room.turnIndex)
                 if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
 
                     let nextIndex = room.turnIndex;
@@ -688,7 +746,6 @@ io.on('connection', (socket) => {
                     } while (room.players[nextIndex].gameStatus.state === "left");
                     room.turnIndex = nextIndex;
                 }
-                console.log("room.turnIndex : ", room.turnIndex)
                 room.lastDiceRoll = null;
 
                 const nextPlayer = room.players[room.turnIndex];
@@ -707,13 +764,11 @@ io.on('connection', (socket) => {
         // ✅ Step 3: No movable tokens, skip turn
         if (movableTokenIndexes.length === 0) {
             // room.turnIndex = (room.turnIndex + 1) % room.players.length;
-            console.log("room.turnIndex 0 : ", room.turnIndex)
             let nextIndex = room.turnIndex;
             do {
                 nextIndex = (nextIndex + 1) % room.players.length;
             } while (room.players[nextIndex].gameStatus.state === "left");
             room.turnIndex = nextIndex;
-            console.log("room.turnIndex : 0 ", room.turnIndex)
 
 
             room.lastDiceRoll = null;
@@ -742,10 +797,7 @@ io.on('connection', (socket) => {
         const room = rooms[roomCode];
         if (!room) return callback?.({ success: false, message: "Invalid room code" });
 
-        console.log("#########################")
-        console.log("tokenIndex : ", tokenIndex)
         const currentPlayer = room.players[room.turnIndex];
-        console.log("currentPlayer : ", currentPlayer)
         if (currentPlayer.socketId !== socket.id) {
             return callback?.({ success: false, message: "It's not your turn!" });
         }
@@ -762,12 +814,9 @@ io.on('connection', (socket) => {
         }
 
         const token = currentPlayer.tokens[tokenIndex];
-        console.log("token : ", token)
         const diceRoll = room.lastDiceRoll;
-        console.log("diceRoll : ", diceRoll)
         // console.log("token : ",token)
         const relPos = token.relPos;
-        console.log("relPos : ", relPos)
 
         if (relPos === 0 && diceRoll !== 6) {
             return callback?.({ success: false, message: "You need a 6 to bring the token out." });
@@ -797,36 +846,6 @@ io.on('connection', (socket) => {
             relPos: newRelPos,
             globalPos: newGlobalPos
         };
-
-        // const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
-        // let isKill = false;
-
-        // // Check for kills only if newGlobalPos is a valid number and not a safe spot
-        // if (typeof newGlobalPos === 'number' && newGlobalPos >= 0 && !safeSpots.includes(newGlobalPos)) {
-        //     for (const player of room.players) {
-        //         if (player._id !== currentPlayer._id) {
-        //             for (let i = 0; i < 4; i++) {
-        //                 const opponentToken = player.tokens[i];
-        //                 // Kill opponent token if on same global position and on the main track (relPos between 1 and 51)
-        //                 if (
-        //                     typeof opponentToken.globalPos === 'number' &&
-        //                     opponentToken.globalPos >= 0 &&
-        //                     opponentToken.globalPos === newGlobalPos &&
-        //                     opponentToken.relPos > 0 &&
-        //                     opponentToken.relPos <= 51
-        //                 ) {
-
-
-        //                     // add new logic to check 2 token in same position then not kill
-        //                     // 
-
-        //                     player.tokens[i] = { relPos: 0, globalPos: -1 }; // Send back to home
-        //                     isKill = true;
-        //                 }
-        //             }
-        //         }
-        //     }
-        // }
 
         const safeSpots = [1, 9, 14, 22, 27, 35, 40, 48];
         let isKill = false;
@@ -868,16 +887,53 @@ io.on('connection', (socket) => {
             }
         }
 
-        // Check if player has won (all tokens finished)
-        const allFinished = currentPlayer.tokens.every(t => t.relPos === 57);
+        // Ensure all tokens have relPos === 57 (converted to number for safety)
+        console.log("currentPlayer.tokens : ", currentPlayer.tokens)
+        const allFinished = currentPlayer.tokens.every((t, i) => {
+            const relPosNum = Number(t.relPos);
+            const isFinished = relPosNum === 57;
+            console.log(`Token ${i} -> relPos: ${t.relPos} (type: ${typeof t.relPos}), isFinished: ${isFinished}`);
+            return isFinished;
+        });
+
         if (allFinished) {
-            io.to(roomCode).emit('game_won', {
+            console.log(`${currentPlayer.name} has finished all tokens!`);
+
+            room.players.forEach(player => {
+                if (player.email === socket.user.email) {
+                    player.gameStatus = {
+                        _id: player._id,
+                        ...player.gameStatus,
+                        rank: 1,
+                        outcome: "100"
+                    };
+                } else {
+                    player.gameStatus = {
+                        _id: player._id,
+                        ...player.gameStatus,
+                        rank: 2,
+                        outcome: "loss"
+                    };
+                }
+            });
+
+            const winningList = room.players
+                .map(player => player.gameStatus)
+                .sort((a, b) => a.rank - b.rank);
+
+            console.log("winningList ::", winningList);
+
+            io.to(roomCode).emit("game_over", {
                 success: true,
                 message: `${currentPlayer.name} has won the game!`,
-                winner: currentPlayer.email,
-                room
+                data: {
+                    player_quit: {
+                        email: "",
+                        _id: "",
+                    },
+                    winningList,
+                }
             });
-            return;
         }
 
         // Emit token moved event to all players in room
