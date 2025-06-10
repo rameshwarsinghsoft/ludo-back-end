@@ -1,8 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const apiRouter = require('./routes');
-const connectDB = require('./config/db');
+const apiRouter = require('./src/routes');
+const connectDB = require('./src/config/db');
 const app = express();
 const port = process.env.PORT || 8000;
 

@@ -45,6 +45,8 @@ class AuthService {
                 return ServiceResponse(false, StatusCodes.UNAUTHORIZED, "Incorrect current password.");
             }
 
+            console.log("currentPassword : ",currentPassword,typeof currentPassword)
+            console.log("newPassword : ",newPassword, typeof newPassword)
             if (currentPassword === newPassword) {
                 return ServiceResponse(false, StatusCodes.BAD_REQUEST, "New password must be different from the current password");
             }
