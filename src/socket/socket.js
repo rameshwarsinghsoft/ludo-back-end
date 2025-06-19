@@ -80,8 +80,29 @@ const initGameSocket = (io) => {
 
     const rooms = {};
 
+    function updateSocketIdByEmail(socket) {
+        const targetEmail = socket.user.email;
+        for (const roomId in rooms) {
+            const room = rooms[roomId];
+            const player = room.players.find(p => p.email === targetEmail);
+            if (player) {
+                console.log(`✅ Updated socketId for ${targetEmail} in room ${roomId}`);
+                player.socketId = socket.id;
+                socket.join(roomId);
+                return true; // Exit early after update
+            }
+        }
+        console.warn(`⚠️ Email ${targetEmail} not found in any room`);
+        return false;
+    }
+
     io.on('connection', (socket) => {
         console.log(`User connected: ${socket.user.email} | Socket ID: ${socket.id}`);
+        // Update the socket ID for the user if they exist in any room
+        const updated = updateSocketIdByEmail(socket);
+        if (!updated) {
+            console.log(`ℹ️ No existing player found with email ${socket.user.email}`);
+        }
 
         // Creating a room with a specified player limit (2 or 4)
         socket.on('create_room', ({ maxPlayers }, callback) => {
@@ -522,6 +543,8 @@ const initGameSocket = (io) => {
 
         socket.on('roll_dice', ({ roomCode }, callback) => {
             const room = rooms[roomCode];
+            console.log("room : ", room)
+            // console.log("room : roll_dice ", room)
             if (!room) {
                 return callback?.({ success: false, message: "Invalid room code." });
             }
@@ -565,6 +588,18 @@ const initGameSocket = (io) => {
             }));
 
             // ✅ Step 1: Emit dice_rolled for everyone
+
+
+            io.in(roomCode).allSockets()
+                .then((socketIds) => {
+                    const totalSockets = socketIds.size;
+                    console.log(`Total sockets in room ${roomCode}: ${totalSockets}`);
+                    console.log("Socket IDs:", [...socketIds]);
+                })
+                .catch((err) => {
+                    console.error("Error getting sockets in room:", err);
+                });
+
             io.to(roomCode).emit('dice_rolled', {
                 success: true,
                 message: `Player ${currentPlayer.name} rolled a ${diceRoll}`,
@@ -768,6 +803,7 @@ const initGameSocket = (io) => {
             }
 
             // ✅ Step 4: Always respond to the original player
+            console.log("Dice rolled successfully!")
             callback?.({
                 success: true,
                 message: "Dice rolled successfully!",
@@ -973,25 +1009,44 @@ const initGameSocket = (io) => {
         });
 
         socket.on('disconnect', (reason) => {
-            console.log(`User disconnected: ${socket.user.email} | Reason: ${reason}`);
+            console.log(`User disconnected: ${socket.user.email} | Socket ID: ${socket.id} | Reason: ${reason}`);
 
-            for (const [roomCode, room] of Object.entries(rooms)) {
-                const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
-                if (playerIndex !== -1) {
-                    room.players.splice(playerIndex, 1); // Remove player from the room
-
-                    if (room.players.length === 0) {
-                        delete rooms[roomCode]; // Remove room if no players left
-                        console.log(`Room ${roomCode} deleted due to inactivity.`);
-                    } else {
-                        io.to(roomCode).emit('player_left', {
-                            message: "A player left the game",
-                            players: room.players
-                        });
-                    }
-                    break;
-                }
+            if (socket.conn && socket.conn.transport && socket.conn.transport.name) {
+                console.log(`🚚 Transport used: ${socket.conn.transport.name}`);
             }
+
+            // Client namespace disconnect
+            // Triggered when a player leaves the game and disconnect socket
+
+            // Transport closed
+            // Happens when the screen is turned off (e.g., mobile screen off)
+            // If the connection auto-reconnects when the screen turns back on,
+            // then no action like room deletion is required
+
+
+            if (reason !== "transport close") {
+                console.log("if block")
+                for (const [roomCode, room] of Object.entries(rooms)) {
+                    const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
+                    if (playerIndex !== -1) {
+                        room.players.splice(playerIndex, 1); // Remove player from the room
+
+                        if (room.players.length === 0) {
+                            delete rooms[roomCode]; // Remove room if no players left
+                            console.log(`Room ${roomCode} deleted due to inactivity.`);
+                        } else {
+                            io.to(roomCode).emit('player_left', {
+                                message: "A player left the game",
+                                players: room.players
+                            });
+                        }
+                        break;
+                    }
+                }
+            } else {
+                console.log("else block")
+            }
+
         });
     });
 }
