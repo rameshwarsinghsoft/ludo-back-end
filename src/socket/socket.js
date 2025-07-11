@@ -34,6 +34,9 @@ const initGameSocket = (io) => {
 
         // Roll dice between 1–6
         let diceRoll = Math.floor(Math.random() * 6) + 1;
+        // let diceRoll = Math.random() < 0.5 ? 1 : 6;
+        // let diceRoll = 6;
+
 
         // Maintain last 3 rolls
         currentPlayer.dice.dice_rolls.shift();
@@ -42,6 +45,15 @@ const initGameSocket = (io) => {
         // Directly check if all are 6 (no helper function)
         const allSix = currentPlayer.dice.dice_rolls.length === 3 &&
             currentPlayer.dice.dice_rolls.every(val => val === 6);
+
+
+        // if (allSix) {
+        //     currentPlayer.dice.dice_rolls.fill(1);
+        //     diceRoll = 1;
+        //     currentPlayer.dice.dice_rolls.shift();
+        //     currentPlayer.dice.dice_rolls.push(diceRoll);
+        // }
+
 
         if (allSix) {
             console.log(`${currentPlayer.name} rolled 6 three times in a row!`);
@@ -423,9 +435,21 @@ const initGameSocket = (io) => {
             }
 
             const playerIndex = room.players.findIndex(player => player.email === currentPlayer.email);
+            let isPlayerTurn = false;
             if (playerIndex === room.turnIndex) {
-                room.turnIndex = (room.turnIndex + 1) % room.players.length;
+                isPlayerTurn = true;
+                let nextIndex = room.turnIndex;
+                do {
+                    nextIndex = (nextIndex + 1) % room.players.length;
+                } while (
+                    room.players[nextIndex].gameStatus.state === "left" ||
+                    room.players[nextIndex].gameStatus.state === "won"
+                );
+                room.turnIndex = nextIndex;
+
+                lastDiceRoll = null;
             }
+
             // 🟡 Mark player as left manually
             currentPlayer.gameStatus = {
                 ...currentPlayer.gameStatus,
@@ -482,7 +506,7 @@ const initGameSocket = (io) => {
                         }
                     });
                 }
-
+                console.log("room.players : ", room.players)
                 // Sort by rank and return a mapped array (if needed)
                 const winningList = room.players
                     .map(player => player.gameStatus)
@@ -517,21 +541,25 @@ const initGameSocket = (io) => {
                 });
             }
 
-            // 🟢 Continue game — notify others about the quit
-            // playersToNotify.forEach(player => {
-            //     io.to(player.socketId).emit("game_over", {
-            //         success: true,
-            //         message: `The game has ended because ${quittingPlayer.name} quit.`,
-            //         data: {}
-            //     });
-            // });
-
             io.to(roomCode).emit("player_quit", {
                 success: true,
                 message: `Player ${currentPlayer.name} has quit the game.`,
-                player_quit: {
-                    email: currentPlayer.email,
-                    _id: currentPlayer._id,
+                data: {
+                    player_quit: {
+                        email: currentPlayer.email,
+                        _id: currentPlayer._id,
+                        isPlayerTurn
+                    }
+                }
+            });
+
+            const nextPlayer = room.players[room.turnIndex];
+            io.to(roomCode).emit('player_turn', {
+                success: true,
+                message: `It's now ${nextPlayer.email}'s turn.`,
+                data: {
+                    nextPlayer: nextPlayer.email,
+                    _id: nextPlayer._id
                 }
             });
 
@@ -543,8 +571,6 @@ const initGameSocket = (io) => {
 
         socket.on('roll_dice', ({ roomCode }, callback) => {
             const room = rooms[roomCode];
-            console.log("room : ", room)
-            // console.log("room : roll_dice ", room)
             if (!room) {
                 return callback?.({ success: false, message: "Invalid room code." });
             }
@@ -588,13 +614,11 @@ const initGameSocket = (io) => {
             }));
 
             // ✅ Step 1: Emit dice_rolled for everyone
-
-
             io.in(roomCode).allSockets()
                 .then((socketIds) => {
                     const totalSockets = socketIds.size;
-                    console.log(`Total sockets in room ${roomCode}: ${totalSockets}`);
-                    console.log("Socket IDs:", [...socketIds]);
+                    // console.log(`Total sockets in room ${roomCode}: ${totalSockets}`);
+                    // console.log("Socket IDs:", [...socketIds]);
                 })
                 .catch((err) => {
                     console.error("Error getting sockets in room:", err);
@@ -662,8 +686,12 @@ const initGameSocket = (io) => {
                                         t.relPos < 57
                                 );
 
+                                // console.log("opponentTokensAtPos : ", opponentTokensAtPos)
+                                // console.log("ownTokensAtPos : ", ownTokensAtPos)
                                 // Only kill if exactly one opponent token is at the position and none of our own
-                                if (opponentTokensAtPos.length === 1 && ownTokensAtPos.length === 0) {
+                                if (opponentTokensAtPos.length === 1 && ownTokensAtPos.length === 1) {
+                                    // if (opponentTokensAtPos.length === 1 && ownTokensAtPos.length === 0) {
+                                    console.log("inside kill")
                                     // Find and kill the opponent token at that position
                                     for (let i = 0; i < player.tokens.length; i++) {
                                         const opponentToken = player.tokens[i];
@@ -671,6 +699,7 @@ const initGameSocket = (io) => {
                                             typeof opponentToken.globalPos === 'number' &&
                                             opponentToken.globalPos === newGlobalPos
                                         ) {
+                                            console.log("okay kill")
                                             player.tokens[i] = { relPos: 0, globalPos: -1 }; // send home
                                             isKill = true;
                                             break;
@@ -705,7 +734,7 @@ const initGameSocket = (io) => {
                     });
 
                     // Ensure all tokens have relPos === 57 (converted to number for safety)
-                    console.log("currentPlayer.tokens : ", currentPlayer.tokens)
+                    // console.log("currentPlayer.tokens : ", currentPlayer.tokens)
                     const allFinished = currentPlayer.tokens.every((t, i) => {
                         const relPosNum = Number(t.relPos);
                         const isFinished = relPosNum === 57;
@@ -714,57 +743,142 @@ const initGameSocket = (io) => {
                     });
 
                     if (allFinished) {
-                        console.log(`${currentPlayer.name} has finished all tokens!`);
+                        currentPlayer.gameStatus = {
+                            ...currentPlayer.gameStatus,
+                            state: "won",
+                        };
 
-                        room.players.forEach(player => {
-                            if (player.email === socket.user.email) {
-                                player.gameStatus = {
-                                    _id: player._id,
-                                    ...player.gameStatus,
-                                    rank: 1,
-                                    outcome: "100"
-                                };
+                        const remainingActiveNonWinners = room.players.filter(
+                            (player) => player.gameStatus.state !== "left" && player.gameStatus.state !== "won"
+                        );
+                        console.log("remainingActiveNonWinners : remainingActiveNonWinners : : ", remainingActiveNonWinners)
+                        if (remainingActiveNonWinners.length <= 1) {
+                            if (room.maxPlayers === 2) {
+                                room.players.forEach(player => {
+                                    if (player.email === socket.user.email) {
+                                        player.gameStatus = {
+                                            _id: player._id,
+                                            ...player.gameStatus,
+                                            rank: 1,
+                                            state: "won",
+                                            outcome: "100"
+                                        };
+                                    } else {
+                                        player.gameStatus = {
+                                            _id: player._id,
+                                            ...player.gameStatus,
+                                            rank: 2,
+                                            state: "lost",
+                                            outcome: "Loss"
+                                        };
+                                    }
+                                });
                             } else {
-                                player.gameStatus = {
-                                    _id: player._id,
-                                    ...player.gameStatus,
-                                    rank: 2,
-                                    outcome: "Loss"
+                                const totalWinners = room.players.filter(
+                                    player => player.gameStatus.state === "won"
+                                ).length;
+
+                                const rankOutcomeMap = {
+                                    3: { rank: 3, outcome: 25 },
+                                    2: { rank: 2, outcome: 50 },
+                                    1: { rank: 1, outcome: 100 },
                                 };
+
+                                const { rank = 0, outcome = 0 } = rankOutcomeMap[totalWinners] || {};
+
+                                room.players.forEach(player => {
+                                    if (player.email === socket.user.email) {
+                                        player.gameStatus = {
+                                            _id: player._id,
+                                            ...player.gameStatus,
+                                            rank,
+                                            state: "won",
+                                            outcome
+                                        };
+                                    } else {
+                                        if (player.gameStatus.state === "active") {
+                                            player.gameStatus = {
+                                                _id: player._id,
+                                                ...player.gameStatus,
+                                                rank: rank === 1 ? 2 : rank + 1,
+                                                state: "lost",
+                                                outcome: "Loss"
+                                            };
+                                        }
+                                    }
+                                });
                             }
-                        });
+                            const winningList = room.players
+                                .map(player => player.gameStatus)
+                                .sort((a, b) => a.rank - b.rank);
 
-                        const winningList = room.players
-                            .map(player => player.gameStatus)
-                            .sort((a, b) => a.rank - b.rank);
+                            console.log("winningList ::", winningList);
 
-                        console.log("winningList ::", winningList);
+                            io.to(roomCode).emit("game_over", {
+                                success: true,
+                                message: `${currentPlayer.name} has won the game!`,
+                                data: {
+                                    player_quit: {
+                                        email: "",
+                                        _id: "",
+                                    },
+                                    winningList,
+                                }
+                            });
+                        } else {
+                            // const quitterRank = remainingActiveNonWinners.length + 1;
+                            // const rankOutcomeMap = {
+                            //     4: { rank: 1, outcome: 100 },
+                            //     3: { rank: 2, outcome: 50 },
+                            // };
+                            // const { rank = 0, outcome = 0 } = rankOutcomeMap[quitterRank] || {};
 
-                        io.to(roomCode).emit("game_over", {
-                            success: true,
-                            message: `${currentPlayer.name} has won the game!`,
-                            data: {
-                                player_quit: {
-                                    email: "",
-                                    _id: "",
-                                },
-                                winningList,
-                            }
-                        });
+
+                            const totalWinners = room.players.filter(
+                                player => player.gameStatus.state === "won"
+                            ).length;
+
+                            const rankOutcomeMap = {
+                                3: { rank: 3, outcome: 25 },
+                                2: { rank: 2, outcome: 50 },
+                                1: { rank: 1, outcome: 100 },
+                            };
+
+                            const { rank = 0, outcome = 0 } = rankOutcomeMap[totalWinners] || {};
+
+                            room.players.forEach(player => {
+                                if (player.email === socket.user.email) {
+                                    player.gameStatus = {
+                                        _id: player._id,
+                                        ...player.gameStatus,
+                                        rank,
+                                        state: "won",
+                                        outcome,
+                                    };
+                                }
+                            });
+                        }
                     }
                     // Change turn only if no 6 rolled, no kill, and token not finished
                     // if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
                     //     room.turnIndex = (room.turnIndex + 1) % room.players.length;
                     // }
-                    if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
+                    console.log(`allFinished: ${allFinished}, isKill: ${isKill}, diceRoll: ${diceRoll}`);
+                    console.log("1 roll dice before turnIndex : ", room.turnIndex)
 
+                    if (allFinished) isTokenInWinBox = false;
+                    if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
                         let nextIndex = room.turnIndex;
                         do {
                             nextIndex = (nextIndex + 1) % room.players.length;
-                        } while (room.players[nextIndex].gameStatus.state === "left");
+                        } while (
+                            room.players[nextIndex].gameStatus.state === "left" ||
+                            room.players[nextIndex].gameStatus.state === "won"
+                        );
                         room.turnIndex = nextIndex;
                     }
                     room.lastDiceRoll = null;
+                    console.log("1 roll dice after room turn : ", room.turnIndex)
 
                     const nextPlayer = room.players[room.turnIndex];
                     io.to(roomCode).emit('player_turn', {
@@ -781,16 +895,17 @@ const initGameSocket = (io) => {
 
             // ✅ Step 3: No movable tokens, skip turn
             if (movableTokenIndexes.length === 0) {
-                // room.turnIndex = (room.turnIndex + 1) % room.players.length;
                 let nextIndex = room.turnIndex;
+                console.log("2 roll dice before room turn : ", room.turnIndex)
                 do {
                     nextIndex = (nextIndex + 1) % room.players.length;
-                } while (room.players[nextIndex].gameStatus.state === "left");
+                } while (
+                    room.players[nextIndex].gameStatus.state === "left" ||
+                    room.players[nextIndex].gameStatus.state === "won"
+                );
                 room.turnIndex = nextIndex;
-
-
                 room.lastDiceRoll = null;
-
+                console.log("2 roll dice after room turn : ", room.turnIndex)
                 const nextPlayer = room.players[room.turnIndex];
                 io.to(roomCode).emit('player_turn', {
                     success: true,
@@ -803,7 +918,6 @@ const initGameSocket = (io) => {
             }
 
             // ✅ Step 4: Always respond to the original player
-            console.log("Dice rolled successfully!")
             callback?.({
                 success: true,
                 message: "Dice rolled successfully!",
@@ -907,7 +1021,7 @@ const initGameSocket = (io) => {
             }
 
             // Ensure all tokens have relPos === 57 (converted to number for safety)
-            console.log("currentPlayer.tokens : ", currentPlayer.tokens)
+            // console.log("currentPlayer.tokens : ", currentPlayer.tokens)
             const allFinished = currentPlayer.tokens.every((t, i) => {
                 const relPosNum = Number(t.relPos);
                 const isFinished = relPosNum === 57;
@@ -983,16 +1097,20 @@ const initGameSocket = (io) => {
             //     room.turnIndex = (room.turnIndex + 1) % room.players.length;
             // }
             // skip turn if player state is left
-            console.log("room.turnIndex before: ", room.turnIndex)
+            // console.log("room.turnIndex before: ", room.turnIndex)
+            console.log("move before turnIndex : ", room.turnIndex)
             if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {
 
                 let nextIndex = room.turnIndex;
                 do {
                     nextIndex = (nextIndex + 1) % room.players.length;
-                } while (room.players[nextIndex].gameStatus.state === "left");
+                } while (
+                    room.players[nextIndex].gameStatus.state === "left" ||
+                    room.players[nextIndex].gameStatus.state === "won"
+                );
                 room.turnIndex = nextIndex;
             }
-            console.log("room.turnIndex after: ", room.turnIndex)
+            console.log("move after turnIndex : ", room.turnIndex)
             const nextPlayer = room.players[room.turnIndex];
             room.lastDiceRoll = null;
 
@@ -1024,28 +1142,28 @@ const initGameSocket = (io) => {
             // then no action like room deletion is required
 
 
-            if (reason !== "transport close") {
-                console.log("if block")
-                for (const [roomCode, room] of Object.entries(rooms)) {
-                    const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
-                    if (playerIndex !== -1) {
-                        room.players.splice(playerIndex, 1); // Remove player from the room
+            // if (reason !== "transport close") {
+            //     console.log("if block")
+            //     for (const [roomCode, room] of Object.entries(rooms)) {
+            //         const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
+            //         if (playerIndex !== -1) {
+            //             room.players.splice(playerIndex, 1); // Remove player from the room
 
-                        if (room.players.length === 0) {
-                            delete rooms[roomCode]; // Remove room if no players left
-                            console.log(`Room ${roomCode} deleted due to inactivity.`);
-                        } else {
-                            io.to(roomCode).emit('player_left', {
-                                message: "A player left the game",
-                                players: room.players
-                            });
-                        }
-                        break;
-                    }
-                }
-            } else {
-                console.log("else block")
-            }
+            //             if (room.players.length === 0) {
+            //                 delete rooms[roomCode]; // Remove room if no players left
+            //                 console.log(`Room ${roomCode} deleted due to inactivity.`);
+            //             } else {
+            //                 io.to(roomCode).emit('player_left', {
+            //                     message: "A player left the game",
+            //                     players: room.players
+            //                 });
+            //             }
+            //             break;
+            //         }
+            //     }
+            // } else {
+            //     console.log("else block")
+            // }
 
         });
     });
