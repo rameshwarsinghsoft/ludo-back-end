@@ -6,7 +6,8 @@ function handleDiceRoll(currentPlayer) {
     }
 
     // Roll dice between 1–6
-    let diceRoll = Math.floor(Math.random() * 6) + 1;
+    // let diceRoll = Math.floor(Math.random() * 6) + 1;
+    let diceRoll = Math.random() < 0.5 ? 1 : 6;
 
     // Maintain last 3 rolls
     currentPlayer.dice.dice_rolls.shift();
@@ -74,6 +75,9 @@ function startGame(io, socket, rooms, { roomCode }, callback) {
     if (!currentPlayer.isCreator) {
         return callback?.({ success: false, message: "Only the room creator can start the game." });
     }
+
+    room.gameStatus.isStarted = true;
+    room.gameStatus.startedAt = new Date();
 
     const playerData = players.map(({ name, email, _id, tokens }) => ({
         name,
@@ -288,7 +292,7 @@ function rollDice(io, socket, rooms, { roomCode }, callback) {
                 const remainingActiveNonWinners = room.players.filter(
                     (player) => player.gameStatus.state !== "left" && player.gameStatus.state !== "won"
                 );
-                console.log("remainingActiveNonWinners : remainingActiveNonWinners : : ", remainingActiveNonWinners)
+
                 if (remainingActiveNonWinners.length <= 1) {
                     if (room.maxPlayers === 2) {
                         room.players.forEach(player => {
@@ -350,6 +354,9 @@ function rollDice(io, socket, rooms, { roomCode }, callback) {
                         .sort((a, b) => a.rank - b.rank);
 
                     console.log("winningList ::", winningList);
+
+                    room.gameStatus.isFinished = true;
+                    room.gameStatus.finishedAt = new Date();
 
                     io.to(roomCode).emit("game_over", {
                         success: true,
@@ -621,7 +628,6 @@ function moveToken(io, socket, rooms, { roomCode, tokenIndex }, callback) {
 }
 
 function quitGame(io, socket, rooms, { roomCode }, callback) {
-
     const room = rooms[roomCode];
     if (!room) {
         return callback?.({ success: false, message: "Invalid room code." });
@@ -656,13 +662,13 @@ function quitGame(io, socket, rooms, { roomCode }, callback) {
         reason: "manual"
     };
 
+    // Reset all tokens to initial state (home)
+    currentPlayer.tokens = Array(4).fill({ relPos: 0, globalPos: -1 });
+
     // 🔵 Count active players
     const remainingActivePlayers = room.players.filter(
         (player) => player.gameStatus.state !== "left"
     );
-
-    // console.log("remainingActivePlayers : ", remainingActivePlayers)
-    // console.log("room.players : ", room.players)
 
     if (remainingActivePlayers.length <= 1) {
         // 🟥 End the game — too few active players
@@ -710,6 +716,9 @@ function quitGame(io, socket, rooms, { roomCode }, callback) {
         const winningList = room.players
             .map(player => player.gameStatus)
             .sort((a, b) => a.rank - b.rank);
+
+        room.gameStatus.isFinished = true;
+        room.gameStatus.finishedAt = new Date();
 
         io.to(roomCode).emit("game_over", {
             success: true,
@@ -762,7 +771,7 @@ function quitGame(io, socket, rooms, { roomCode }, callback) {
             _id: nextPlayer._id
         }
     });
-
+    console.log("Game Quite : ", players)
     return callback?.({
         success: true,
         message: "You quit the game successfully.",

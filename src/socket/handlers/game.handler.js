@@ -20,5 +20,3 @@ function initGameHandlers(io, socket, rooms) {
 }
 
 module.exports = { initGameHandlers };
-
-

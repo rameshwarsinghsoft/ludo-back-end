@@ -2,6 +2,8 @@
 const jwt = require('jsonwebtoken');
 const { initRoomHandlers } = require('./handlers/room.handler');
 const { initGameHandlers } = require('./handlers/game.handler');
+const { initDisconnectHandler } = require('./handlers/disconnect.handler');
+const { startRoomCleanupTimer } = require('./utils/roomCleaner');
 const initGameSocket = (io) => {
     // Handle low-level connection errors
     io.engine.on('connection_error', (err) => {
@@ -28,6 +30,9 @@ const initGameSocket = (io) => {
     });
 
     const rooms = {};
+
+    // ✅ Ensures cleanup runs only once
+    let cleanupStarted = false;
 
     function updateSocketIdByEmail(socket) {
         const targetEmail = socket.user.email;
@@ -59,46 +64,14 @@ const initGameSocket = (io) => {
         // Register game events
         initGameHandlers(io, socket, rooms);
 
-        socket.on('disconnect', (reason) => {
-            console.log(`User disconnected: ${socket.user.email} | Socket ID: ${socket.id} | Reason: ${reason}`);
+        // ✅ Cleanup timer should start only once
+        if (!cleanupStarted) {
+            startRoomCleanupTimer(io, rooms);
+            cleanupStarted = true;
+        }
 
-            if (socket.conn && socket.conn.transport && socket.conn.transport.name) {
-                console.log(`🚚 Transport used: ${socket.conn.transport.name}`);
-            }
-
-            // Client namespace disconnect
-            // Triggered when a player leaves the game and disconnect socket
-
-            // Transport closed
-            // Happens when the screen is turned off (e.g., mobile screen off)
-            // If the connection auto-reconnects when the screen turns back on,
-            // then no action like room deletion is required
-
-
-            // if (reason !== "transport close") {
-            //     console.log("if block")
-            //     for (const [roomCode, room] of Object.entries(rooms)) {
-            //         const playerIndex = room.players.findIndex(player => player.socketId === socket.id);
-            //         if (playerIndex !== -1) {
-            //             room.players.splice(playerIndex, 1); // Remove player from the room
-
-            //             if (room.players.length === 0) {
-            //                 delete rooms[roomCode]; // Remove room if no players left
-            //                 console.log(`Room ${roomCode} deleted due to inactivity.`);
-            //             } else {
-            //                 io.to(roomCode).emit('player_left', {
-            //                     message: "A player left the game",
-            //                     players: room.players
-            //                 });
-            //             }
-            //             break;
-            //         }
-            //     }
-            // } else {
-            //     console.log("else block")
-            // }
-
-        });
+        // Disconnect
+        initDisconnectHandler(io, socket, rooms);
     });
 }
 

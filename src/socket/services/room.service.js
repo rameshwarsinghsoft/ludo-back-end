@@ -60,7 +60,13 @@ function createRoom(io, socket, rooms, { maxPlayers }, callback) {
         gameState: {},
         turnIndex: 0, // Tracks the current player's turn
         lastDiceRoll: null, // Stores the latest dice roll value
-        lastFourDiceRolls: [{}, {}, {}, {}]
+        lastFourDiceRolls: [{}, {}, {}, {}],
+        gameStatus: {
+            isStarted: false,
+            isFinished: false,
+            startedAt: null,
+            finishedAt: null
+        }
     };
 
     // Creator join the room
@@ -160,6 +166,7 @@ function quitRoom(io, socket, rooms, { roomCode }, callback) {
 
     room.players = room.players.filter(p => p.email !== socket.user.email);
 
+    console.log("Rame Quite : ", room.players)
     io.to(roomCode).emit('player_left_room', {
         success: true,
         message: `${player.name} left the room.`,
