@@ -6,8 +6,8 @@ function handleDiceRoll(currentPlayer) {
     }
 
     // Roll dice between 1–6
-    // let diceRoll = Math.floor(Math.random() * 6) + 1;
-    let diceRoll = Math.random() < 0.5 ? 1 : 6;
+    let diceRoll = Math.floor(Math.random() * 6) + 1;
+    // let diceRoll = Math.random() < 0.5 ? 1 : 6;
 
     // Maintain last 3 rolls
     currentPlayer.dice.dice_rolls.shift();
@@ -402,6 +402,8 @@ function rollDice(io, socket, rooms, { roomCode }, callback) {
                         }
                     });
                 }
+
+
             }
             // Change turn only if no 6 rolled, no kill, and token not finished
             // if (diceRoll !== 6 && !isKill && !isTokenInWinBox) {

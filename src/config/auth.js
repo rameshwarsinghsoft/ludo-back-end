@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 class Auth {
     constructor() {
         this.secret = process.env.JWT_SECRET || 'your_jwt_secret';
-        this.expiration = '5d'; // Token expiration time
+        this.expiration = '20d'; // Token expiration time
     }
 
     generateToken(user) {

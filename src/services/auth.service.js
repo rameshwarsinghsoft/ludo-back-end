@@ -93,7 +93,7 @@ class AuthService {
                 await OTPRepository.create({ email, otp })
             }
             let { success, status, message } = await MailService.sendForgotPasswordEmail(email, otp)
-            console.log(success, status, message)
+            console.log("success : ",success, "status : ",status, "message : ",message)
             return ServiceResponse(success, status, message);
         } catch (error) {
             console.error(`Error during forget password:`, error.message);

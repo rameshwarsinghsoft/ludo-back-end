@@ -19,7 +19,8 @@ function handlePlayerDisconnect(io, socket, rooms, joinedRooms) {
             handlePlayerRoomQuit(io, socket, rooms, roomCode)
         }
 
-        if (players.length > 1 && gameStatus.isStarted) {
+        // if (players.length > 1 && gameStatus.isStarted) {
+        if (players.length > 1 && gameStatus.isStarted && !gameStatus.isFinished) {
             handlePlayerGameQuit(io, socket, rooms, roomCode)
         }
     }

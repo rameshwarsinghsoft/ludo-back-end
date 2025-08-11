@@ -5,6 +5,7 @@ const { StatusCodes } = require('http-status-codes');
 class AuthController {
 
     async login(req, res) {
+        console.log("req.method : ",req.method);
         try {
             const { email, password } = req.body;
             const { success, status, message, data, token } = await AuthService.loginUser(email, password);
